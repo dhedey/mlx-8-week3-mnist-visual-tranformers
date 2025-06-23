@@ -68,6 +68,10 @@ def train_sweep_run():
         print(f"\n🚀 Starting sweep run")
         device = select_device()
 
+        # Check for early stopping from environment
+        enable_early_stopping = os.environ.get('SWEEP_EARLY_STOPPING', 'false').lower() == 'true'
+        early_stopping_patience = int(os.environ.get('SWEEP_EARLY_STOPPING_PATIENCE', '5'))
+
         match config.positional_embedding:
             case "learned-bias":
                 add_positional_bias = True
@@ -80,6 +84,8 @@ def train_sweep_run():
             batch_size=config.batch_size,
             epochs=config.epochs,
             learning_rate=config.learning_rate,
+            early_stopping=enable_early_stopping,
+            early_stopping_patience=early_stopping_patience,
         )
 
         model_parameters = TransformerEncoderModelHyperparameters(
@@ -174,6 +180,10 @@ def main():
                         help='Join existing sweep by ID instead of creating new one')
     parser.add_argument('--dry-run', action='store_true',
                         help='Just show the configuration without running')
+    parser.add_argument('--early-stopping', action='store_true',
+                        help='Enable early stopping for all sweep runs')
+    parser.add_argument('--early-stopping-patience', type=int, default=5,
+                        help='Number of epochs to wait before early stopping (default: 5)')
     
     args = parser.parse_args()
     
@@ -192,6 +202,11 @@ def main():
     os.chdir(script_dir)
     print(f"📁 Working directory: {script_dir}")
     
+    # Enable early stopping if requested
+    if args.early_stopping:
+        os.environ["SWEEP_EARLY_STOPPING"] = "True"
+        os.environ["SWEEP_EARLY_STOPPING_PATIENCE"] = str(args.early_stopping_patience)
+
     # Run sweep
     if args.sweep_id:
         run_existing_sweep(args.sweep_id, args.project, args.count)
