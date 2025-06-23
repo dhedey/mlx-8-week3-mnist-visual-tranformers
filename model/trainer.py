@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
 import torch
+import torchvision
+from torchvision.transforms import v2
 import statistics
 import random
 import wandb
@@ -13,7 +15,7 @@ import time
 from .common import TrainingState, ModelTrainerBase
 from .models import ModelBase
 
-class ModelTrainer(ModelTrainerBase):
+class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
             self,
             model: ModelBase,
@@ -30,7 +32,33 @@ class ModelTrainer(ModelTrainerBase):
             immediate_validation=immediate_validation
         )
 
-        # TODO: Initialize datasets and data loaders here
+        training_transform = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+            v2.RandomResize(28, 40),
+            v2.RandomRotation(30),
+            v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
+        ])
+
+        test_transform = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+        ])
+
+        train_set = torchvision.datasets.MNIST(
+            "./data",
+            download=True,
+            transform=training_transform,
+            train=True,
+        )
+        test_set = torchvision.datasets.MNIST(
+            "./data",
+            download=True,
+            transform=test_transform,
+            train=False,
+        )
+        print(f"Training set size: {len(train_set)}")
+        print(f"Test set size: {len(test_set)}")
 
     def process_test_batch(self):
         # Implement the logic to process a batch of data for training
@@ -42,10 +70,6 @@ class ModelTrainer(ModelTrainerBase):
         }
     
     def validate(self):
-        print()
-        print("== VALIDATING MODEL ==")
-        print()
-        
         raise NotImplementedError("To be implemented.")
 
         return {

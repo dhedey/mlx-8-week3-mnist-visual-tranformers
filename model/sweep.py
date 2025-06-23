@@ -17,6 +17,7 @@ from .common import select_device
 PROJECT_NAME = "week2-two-towers"
 
 # Sweep configuration - equivalent to wandb_sweep.yaml but in Python
+# https://docs.wandb.ai/guides/sweeps/sweep-config-keys/
 SWEEP_CONFIG = {
     'method': 'bayes',  # Can be 'grid', 'random', or 'bayes'
     'metric': {

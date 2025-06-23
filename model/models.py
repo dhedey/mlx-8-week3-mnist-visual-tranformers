@@ -11,6 +11,7 @@ import pandas as pd
 import math
 from typing import Optional, Self
 from .common import ModelBase, PersistableData, TrainingHyperparameters
+from .trainer import EncoderOnlyModelTrainer
 
 @dataclass
 class TransformerBasedEncoderModelHyperparameters(PersistableData):
@@ -61,6 +62,7 @@ DEFAULT_MODEL_PARAMETERS = {
             embedding_size=32,
         ),
         "model_class": TransformerBasedEncoderModel,
+        "model_trainer": EncoderOnlyModelTrainer,
     }
 }
 

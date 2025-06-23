@@ -1,7 +1,7 @@
 # Run as uv run -m model.continue_train
 import argparse
 from .models import ModelBase, DEFAULT_MODEL_PARAMETERS
-from .trainer import ModelTrainer
+from .trainer import EncoderOnlyModelTrainer
 
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_PARAMETERS.keys()[0]
 
@@ -28,7 +28,7 @@ if __name__ == "__main__":
         model_name=args.model
     )
 
-    trainer = ModelTrainer(
+    trainer = EncoderOnlyModelTrainer(
         model=model,
         continuation=training_state,
         override_to_epoch=args.end_epoch,
