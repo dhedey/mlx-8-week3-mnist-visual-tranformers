@@ -126,6 +126,8 @@ class TrainingHyperparameters(PersistableData):
     batch_size: int
     epochs: int
     learning_rate: float
+    warmup_epochs: int = 0 # Number of epochs to warm up the learning rate
+    optimizer: str = "adam" # "adam" or "adamw". Default should be changed to "adamw" in the future.    early_stopping: bool = False
     early_stopping: bool = False
     early_stopping_patience: int = 5
 
@@ -203,6 +205,14 @@ class ModelTrainerBase:
             self.model.training_parameters.epochs = override_to_epoch
             print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
 
+        match self.model.training_parameters.optimizer:
+            case "adam":
+                self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case "adamw":
+                self.optimizer = optim.AdamW(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case _:
+                raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
+
     def train(self):
         print("Beginning training...")
 
@@ -250,6 +260,18 @@ class ModelTrainerBase:
 
     def train_epoch(self):
         self.model.train()
+
+        # TODO: Replace with a scheduler for learning rate
+        if self.epoch <= self.model.training_parameters.warmup_epochs:
+            warmup_factor = self.epoch / self.model.training_parameters.warmup_epochs
+            learning_rate = self.model.training_parameters.learning_rate * warmup_factor
+            print(f"Warmup epoch {self.epoch}, learning rate set to {warmup_factor} * {self.model.training_parameters.learning_rate:.6f} = {learning_rate:.6f}")
+        else:
+            learning_rate = self.model.training_parameters.learning_rate
+
+        # Apply the learning rate, even if out of warmup, to ensure warmup is disabled
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.model.training_parameters.learning_rate * warmup_factor
 
         print_every = 10
         running_loss = 0.0

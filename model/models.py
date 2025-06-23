@@ -185,6 +185,8 @@ DEFAULT_MODEL_PARAMETERS = {
             batch_size=256,
             epochs=50,
             learning_rate=0.002,
+            optimizer="adamw",
+            warmup_epochs=5,
         ),
         "model": TransformerEncoderModelHyperparameters(
             encoder_blocks=3,
