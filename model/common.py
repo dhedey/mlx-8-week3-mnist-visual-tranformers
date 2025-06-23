@@ -173,7 +173,6 @@ class ModelTrainerBase:
             continuation: Optional[TrainingState] = None,
             override_to_epoch: Optional[int] = None,
             validate_after_epochs: int = 5,
-            immediate_validation: bool = False,
         ):
         torch.manual_seed(42)
 
@@ -198,14 +197,6 @@ class ModelTrainerBase:
         if override_to_epoch is not None:
             self.model.training_parameters.epochs = override_to_epoch
             print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
-
-        print("Preparing datasets...")
-
-        # TODO!
-
-        if immediate_validation:
-            print("Immediate validation requested, validating model...")
-            self.validate()
 
     def train(self):
         print("Beginning training...")

@@ -13,8 +13,7 @@ import wandb
 import os
 from typing import Optional
 import time
-from .common import TrainingState, ModelTrainerBase
-from .models import ModelBase
+from .common import TrainingState, ModelTrainerBase, ModelBase
 
 class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
@@ -23,15 +22,15 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             continuation: Optional[TrainingState] = None,
             override_to_epoch: Optional[int] = None,
             validate_after_epochs: int = 5,
-            immediate_validation: bool = False,
         ):
         super().__init__(
             model=model,
             continuation=continuation,
             override_to_epoch=override_to_epoch,
             validate_after_epochs=validate_after_epochs,
-            immediate_validation=immediate_validation
         )
+
+        print("Preparing datasets...")
 
         training_transform = v2.Compose([
             v2.ToImage(),

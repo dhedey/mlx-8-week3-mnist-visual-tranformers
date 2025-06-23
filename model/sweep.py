@@ -45,6 +45,9 @@ SWEEP_CONFIG = {
         'v_size': {
             'values': [8, 16, 32]
         },
+        'positional_embedding': {
+            'values': ["learned-bias", "none"]
+        },
         'epochs': {
             'values': [20]
         },
@@ -65,6 +68,13 @@ def train_sweep_run():
         print(f"\n🚀 Starting sweep run")
         device = select_device()
 
+        match config.positional_embedding:
+            case "learned-bias":
+                add_positional_bias = True
+            case "none":
+                add_positional_bias = False
+            case _:
+                raise ValueError(f"Unknown positional embedding type: {config.positional_embedding}")
 
         training_parameters = TrainingHyperparameters(
             batch_size=config.batch_size,
@@ -78,6 +88,7 @@ def train_sweep_run():
             kq_dimension=config.kq_size,
             v_dimension=config.v_size,
             mlp_hidden_dimension=4 * config.embedding_size,  # Typical in transformers
+            add_positional_bias=add_positional_bias,
         )
 
         model = TransformerEncoderModel(

@@ -20,6 +20,7 @@ class TransformerEncoderModelHyperparameters(PersistableData):
     kq_dimension: int
     v_dimension: int
     mlp_hidden_dimension: int
+    add_positional_bias: bool = field(default=False, metadata={"description": "Whether to add a positional bias to the block embeddings."})
 
 class TransformerEncoderModel(ModelBase):
     def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: TransformerEncoderModelHyperparameters):
@@ -42,6 +43,14 @@ class TransformerEncoderModel(ModelBase):
             for _ in range(model_parameters.encoder_blocks)
         ])
         self.prediction_layer = nn.Linear(model_parameters.embedding_size, 10)
+        if model_parameters.add_positional_bias:
+            # Allow the model to learn a positional bias for each of the blocks in the image
+            self.positional_bias = nn.Parameter(
+                torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32),
+                requires_grad=model_parameters.add_positional_bias,
+            )
+        else:
+            self.positional_bias = torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32)
     
     @classmethod
     def hyper_parameters_class(cls) -> type[PersistableData]:
@@ -58,6 +67,7 @@ class TransformerEncoderModel(ModelBase):
         x = x.transpose(-1, -2)    # Shape: (Batch(es), NumBlocks = 16, Channel=1*(7*7))
 
         residual_stream = self.image_block_embedding(x) # Shape: (Batch(es), NumBlocks = 16, Embedding Dimension)
+        residual_stream = residual_stream + self.positional_bias
 
         for encoder_block in self.encoder_blocks:
             residual_stream = encoder_block(residual_stream)
@@ -161,6 +171,23 @@ class HiddenLayer(nn.Module):
         return x
 
 DEFAULT_MODEL_PARAMETERS = {
+    "encoder-only-positional": {
+        "training": TrainingHyperparameters(
+            batch_size=128,
+            epochs=20,
+            learning_rate=0.002,
+        ),
+        "model": TransformerEncoderModelHyperparameters(
+            encoder_blocks=3,
+            embedding_size=32,
+            kq_dimension=16,
+            v_dimension=16,
+            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
+            add_positional_bias=True,
+        ),
+        "model_class": TransformerEncoderModel,
+        "model_trainer": EncoderOnlyModelTrainer,
+    },
     "encoder-only": {
         "training": TrainingHyperparameters(
             batch_size=128,
@@ -173,12 +200,22 @@ DEFAULT_MODEL_PARAMETERS = {
             kq_dimension=16,
             v_dimension=16,
             mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
+            add_positional_bias=False,
         ),
         "model_class": TransformerEncoderModel,
         "model_trainer": EncoderOnlyModelTrainer,
-    }
+    },
 }
 
         
 if __name__ == "__main__":
-    raise NotImplementedError("Add something here which can test existing model/s.")
+   for model_name, parameters in DEFAULT_MODEL_PARAMETERS.items():
+       print(f"Loading Model: {model_name}")
+       model = ModelBase.load_for_evaluation(model_name)
+       print(f"Validation Metrics: {model.validation_metrics}")
+
+       # Re-validate the model to check the loading has worked correctly
+       trainer = parameters["model_trainer"](
+           model=model,
+       )
+       trainer.validate()
