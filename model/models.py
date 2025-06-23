@@ -45,15 +45,12 @@ class TransformerEncoderModel(ModelBase):
             for _ in range(model_parameters.encoder_blocks)
         ])
         self.prediction_layer = nn.Linear(model_parameters.embedding_size, 10)
-        if model_parameters.add_positional_bias:
-            # Allow the model to learn a positional bias for each of the blocks in the image
-            self.positional_bias = nn.Parameter(
-                torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32),
-                requires_grad=model_parameters.add_positional_bias,
-            )
-        else:
-            self.positional_bias = torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32)
-    
+        # Allow the model to learn a positional bias for each of the blocks in the image
+        self.positional_bias = nn.Parameter(
+            torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32),
+            requires_grad=model_parameters.add_positional_bias,
+        )
+        
     @classmethod
     def hyper_parameters_class(cls) -> type[PersistableData]:
         return TransformerEncoderModelHyperparameters
