@@ -10,60 +10,44 @@ It provides more control over the sweep process compared to the CLI-based approa
 import wandb
 import os
 
-from .models import TrainingHyperparameters, PooledTwoTowerModelHyperparameters, PooledTwoTowerModel, RNNTwoTowerModel, RNNTowerModelHyperparameters
-from .trainer import ModelTrainerBase
+from .models import TrainingHyperparameters, TransformerEncoderModel, TransformerEncoderModelHyperparameters
+from .trainer import EncoderOnlyModelTrainer
 from .common import select_device
 
-PROJECT_NAME = "week2-two-towers"
+PROJECT_NAME = "week3-mnist-transformers"
 
 # Sweep configuration - equivalent to wandb_sweep.yaml but in Python
 # https://docs.wandb.ai/guides/sweeps/sweep-config-keys/
 SWEEP_CONFIG = {
     'method': 'bayes',  # Can be 'grid', 'random', or 'bayes'
     'metric': {
-        'name': 'final_validation_reciprical_rank',
-        'goal': 'maximize'
+        'name': 'final_validation_average_loss',
+        'goal': 'minimize'
     },
     'parameters': {
-        'model_type': {
-            'values': ['pooled', 'rnn']
+        'encoder_blocks': {
+            'values': [1, 3, 5],
         },
         'batch_size': {
             'values': [128, 256]
         },
-        'tokenizer': {
-            'values': ["week1-word2vec", "pretrained:sentence-transformers/all-MiniLM-L6-v2"]
-        },
-        "embeddings": {
-            'values': ["default-frozen", "default-unfrozen", "learned"]
-        },
-        "token_boosts": {
-            'values': ["none", "learned", "sqrt-inverse-frequency"]
-        },
-        'include_hidden_layer': {
-            'values': [True, False]
-        },
         'embedding_size': {
-            'values': [32, 64, 128]
+            'values': [8, 16, 32]
         },
         'learning_rate': {
             'min': 0.001,
             'max': 0.03,
             'distribution': 'log_uniform_values'
         },
-        'dropout': {
-            'min': 0.1,
-            'max': 0.5,
-            'distribution': 'uniform'
+        'kq_size': {
+            'values': [8, 16, 32]
         },
-        'margin': {
-            'min': 0.1,
-            'max': 0.5,
-            'distribution': 'uniform'
+        'v_size': {
+            'values': [8, 16, 32]
         },
         'epochs': {
-            'values': [5]
-        }
+            'values': [20]
+        },
     }
 }
 
@@ -81,95 +65,40 @@ def train_sweep_run():
         print(f"\n🚀 Starting sweep run")
         device = select_device()
 
-        match config.embeddings:
-            case "default-frozen":
-                initial_token_embeddings_kind = "default"
-                freeze_embeddings = True
-            case "default-unfrozen":
-                initial_token_embeddings_kind = "default"
-                freeze_embeddings = False
-            case "learned":
-                initial_token_embeddings_kind = "random"
-                freeze_embeddings = False
-            case _:
-                raise ValueError(f"Unknown embeddings type: {config.embeddings}")
-            
-        match config.token_boosts:
-            case "none":
-                initial_token_embeddings_boost_kind = "ones"
-                freeze_embedding_boosts = True
-            case "learned":
-                initial_token_embeddings_boost_kind = "ones"
-                freeze_embedding_boosts = False # Learn boosts
-            case "sqrt-inverse-frequency":
-                if config.tokenizer == "week1-word2vec":
-                    initial_token_embeddings_boost_kind = "sqrt-inverse-frequency"
-                else:
-                    initial_token_embeddings_boost_kind = "ones"
-                freeze_embedding_boosts = True
-            case _:
-                raise ValueError(f"Unknown token boosts type: {config.token_boosts}")
 
         training_parameters = TrainingHyperparameters(
             batch_size=config.batch_size,
             epochs=config.epochs,
             learning_rate=config.learning_rate,
-            dropout=config.dropout,
-            margin=config.margin,
-            initial_token_embeddings_kind=initial_token_embeddings_kind,
-            freeze_embeddings=freeze_embeddings,
-            initial_token_embeddings_boost_kind=initial_token_embeddings_boost_kind,
-            freeze_embedding_boosts=freeze_embedding_boosts,
         )
 
-        # Determine hidden layer dimensions based on model type and configuration
-        if config.model_type == 'pooled':
-            hidden_dimensions = [] if not config.include_hidden_layer else [config.embedding_size * 2]
-            model_parameters = PooledTwoTowerModelHyperparameters(
-                tokenizer=config.tokenizer,
-                comparison_embedding_size=config.embedding_size,
-                query_tower_hidden_dimensions=hidden_dimensions,
-                doc_tower_hidden_dimensions=hidden_dimensions,
-                include_layer_norms=True,
-            )
+        model_parameters = TransformerEncoderModelHyperparameters(
+            encoder_blocks=config.encoder_blocks,
+            embedding_size=config.embedding_size,
+            kq_dimension=config.kq_size,
+            v_dimension=config.v_size,
+            mlp_hidden_dimension=4 * config.embedding_size,  # Typical in transformers
+        )
 
-            model = PooledTwoTowerModel(
-                model_name="sweep-run",
-                training_parameters=training_parameters,
-                model_parameters=model_parameters,
-            )
-        elif config.model_type == 'rnn':
-            # For RNN models, always include hidden layers for the RNN processing
-            hidden_dimensions = [config.embedding_size * 2, config.embedding_size]
-            model_parameters = RNNTowerModelHyperparameters(
-                tokenizer=config.tokenizer,
-                comparison_embedding_size=config.embedding_size,
-                query_tower_hidden_dimensions=hidden_dimensions,
-                doc_tower_hidden_dimensions=hidden_dimensions,
-                include_layer_norms=True,
-            )
+        model = TransformerEncoderModel(
+            model_name="sweep-run",
+            training_parameters=training_parameters,
+            model_parameters=model_parameters,
+        )
 
-            model = RNNTwoTowerModel(
-                model_name="sweep-run",
-                training_parameters=training_parameters,
-                model_parameters=model_parameters,
-            )
-        else:
-            raise ValueError(f"Unknown model type: {config.model_type}")
-
-        trainer = ModelTrainerBase(model=model.to(device))
+        trainer = EncoderOnlyModelTrainer(model=model.to(device))
         results = trainer.train()
         
-        # Log final metrics (wandb.log is also called within train_model)
-        wandb.log({
-            "final_train_loss": results['last_epoch']['average_loss'],
+        # Log final metrics
+        log_data = {
+            "final_train_average_loss": results['last_epoch']['average_loss'],
             "total_epochs": results['total_epochs'],
-            "final_validation_reciprical_rank": results['validation']["reciprical_rank"],
-            "final_validation_any_relevant_result": results['validation']["any_relevant_result"],
-            "final_validation_average_relevance": results['validation']["average_relevance"],
-        })
+        }
+        for key in results['validation']:
+            log_data[f"final_validation_{key}"] = results['validation'][key]
+        wandb.log(log_data)
         
-        print(f"✅ Sweep run completed! Reciprical Rank: {results['validation']['reciprical_rank']:.4f}")
+        print(f"✅ Sweep run completed!")
         
     except Exception as e:
         print(f"❌ Sweep run failed: {e}")
