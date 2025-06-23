@@ -21,6 +21,7 @@ class TransformerEncoderModelHyperparameters(PersistableData):
     v_dimension: int
     mlp_hidden_dimension: int
     add_positional_bias: bool = field(default=False, metadata={"description": "Whether to add a positional bias to the block embeddings."})
+    mlp_dropout: float = field(default=0.0, metadata={"description": "Dropout rate for the MLP layers."})
 
 class TransformerEncoderModel(ModelBase):
     def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: TransformerEncoderModelHyperparameters):
@@ -39,6 +40,7 @@ class TransformerEncoderModel(ModelBase):
                 v_dimension=model_parameters.v_dimension,
                 embedding_dimension=model_parameters.embedding_size,
                 mlp_hidden_dimension=model_parameters.mlp_hidden_dimension,
+                mlp_dropout=model_parameters.mlp_dropout,
             )
             for _ in range(model_parameters.encoder_blocks)
         ])
@@ -86,6 +88,7 @@ class EncoderBlock(nn.Module):
             kq_dimension:int,
             v_dimension: int,
             embedding_dimension: int,
+            mlp_dropout: float,
             mlp_hidden_dimension: Optional[int] = None,
         ):
         super().__init__()
@@ -101,6 +104,7 @@ class EncoderBlock(nn.Module):
         self.mlp = MultiLayerPerceptron(
             embedding_dimension=embedding_dimension,
             hidden_dimension=embedding_dimension * 4,
+            dropout=mlp_dropout,
         )
         self.layer_norm_2 = nn.LayerNorm(embedding_dimension)
 
@@ -114,15 +118,17 @@ class EncoderBlock(nn.Module):
         return residual_stream
     
 class MultiLayerPerceptron(nn.Module):
-    def __init__(self, embedding_dimension: int, hidden_dimension: int):
+    def __init__(self, embedding_dimension: int, hidden_dimension: int, dropout: float):
         super().__init__()
         self.fc1 = nn.Linear(embedding_dimension, hidden_dimension)
         self.fc2 = nn.Linear(hidden_dimension, embedding_dimension)
+        self.dropout = nn.Dropout(dropout)
     
     def forward(self, x):
         # x has            Shape: (batch_size, sequence_length, embedding_dimension)
         x = self.fc1(x)  # Shape: (batch_size, sequence_length, hidden_dimension)
         x = F.relu(x)
+        x = self.dropout(x)
         x = self.fc2(x)  # Shape: (batch_size, sequence_length, embedding_dimension)
         return x
     
@@ -174,6 +180,24 @@ class HiddenLayer(nn.Module):
         return x
 
 DEFAULT_MODEL_PARAMETERS = {
+    "encoder-only-positional-dropout": {
+        "training": TrainingHyperparameters(
+            batch_size=256,
+            epochs=50,
+            learning_rate=0.002,
+        ),
+        "model": TransformerEncoderModelHyperparameters(
+            encoder_blocks=3,
+            embedding_size=32,
+            kq_dimension=16,
+            v_dimension=16,
+            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
+            mlp_dropout=0.3,
+            add_positional_bias=True,
+        ),
+        "model_class": TransformerEncoderModel,
+        "model_trainer": EncoderOnlyModelTrainer,
+    },
     "encoder-only-positional": {
         "training": TrainingHyperparameters(
             batch_size=128,

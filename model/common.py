@@ -291,7 +291,8 @@ class ModelTrainerBase:
         print("== VALIDATING MODEL ==")
         print()
         self.model.eval()
-        validation_metrics = self._validate()
+        with torch.no_grad():
+            validation_metrics = self._validate()
         self.model.set_validation_metrics(validation_metrics)
         self.latest_validation_loss = validation_metrics["average_loss"]
         self.latest_validation_epoch = self.epoch
