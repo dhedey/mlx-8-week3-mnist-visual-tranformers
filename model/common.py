@@ -271,7 +271,7 @@ class ModelTrainerBase:
 
         # Apply the learning rate, even if out of warmup, to ensure warmup is disabled
         for param_group in self.optimizer.param_groups:
-            param_group['lr'] = self.model.training_parameters.learning_rate * warmup_factor
+            param_group['lr'] = learning_rate
 
         print_every = 10
         running_loss = 0.0
@@ -322,7 +322,6 @@ class ModelTrainerBase:
         raise NotImplementedError("This class method should be implemented by subclasses.")
 
     def validate(self):
-        print()
         print("== VALIDATING MODEL ==")
         print()
         self.model.eval()
