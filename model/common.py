@@ -126,7 +126,7 @@ class TrainingHyperparameters(PersistableData):
     batch_size: int
     epochs: int
     learning_rate: float
-
+    optimizer: str = "adam" # "adam" or "adamw"
 
 class ModelBase(PersistableModel):
     validation_metrics: Optional[dict] = None
@@ -179,8 +179,6 @@ class ModelTrainerBase:
         self.model = model
         self.validate_and_save_after_epochs = validate_after_epochs
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
-
         if continuation is not None:
             self.epoch = continuation.epoch
             self.optimizer.load_state_dict(continuation.optimizer_state)
@@ -199,6 +197,14 @@ class ModelTrainerBase:
         if override_to_epoch is not None:
             self.model.training_parameters.epochs = override_to_epoch
             print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
+
+        match self.model.training_parameters.optimizer:
+            case "adam":
+                self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case "adamw":
+                self.optimizer = optim.AdamW(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case _:
+                raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
 
     def train(self):
         print("Beginning training...")
