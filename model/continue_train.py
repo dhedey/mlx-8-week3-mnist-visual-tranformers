@@ -32,6 +32,7 @@ if __name__ == "__main__":
         model=model,
         continuation=training_state,
         override_to_epoch=args.end_epoch,
+        validate_after_epochs=1,
     )
     if args.immediate_validation:
         print("Immediate validation enabled, running validation before training:")
