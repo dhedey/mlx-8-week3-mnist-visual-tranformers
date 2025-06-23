@@ -58,6 +58,9 @@ class TransformerEncoderModel(ModelBase):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Assumes it receives a (Batch(es), ChannelCount=1, Height=28, Width=28) tensor of images."""
+        #Move to device if not already there
+        x = x.to(self.get_device())
+        
         # Unfold into 7x7 blocks
         x = torch.nn.Unfold(       # Shape: (Batch(es), Channel=1*(7*7), NumBlocks = 4*4)
             kernel_size=(7, 7),
