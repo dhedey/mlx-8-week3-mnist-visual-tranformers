@@ -3,6 +3,9 @@ import torch.optim as optim
 import torch.nn as nn
 import torch
 import os
+import time
+import wandb
+import pathlib
 from typing import Optional, Self
 
 class PersistableData:
@@ -61,11 +64,12 @@ class PersistableModel(nn.Module):
     
     @staticmethod
     def _model_path(model_name: str) -> str:
-        model_folder = os.path.join(os.path.dirname(__file__), "data")
+        model_folder = os.path.join(os.path.dirname(__file__), "saved")
         return os.path.join(model_folder, f"{model_name}.pt")
 
     def save_model_data(self, model_name: str, training_state: TrainingState):
         model_path = PersistableModel._model_path(model_name)
+        pathlib.Path(os.path.dirname(model_path)).mkdir(parents=True, exist_ok=True)
         torch.save({
             "model": {
                 "class_name": type(self).__name__,
@@ -242,13 +246,14 @@ class ModelTrainerBase:
         print_every = 10
         running_loss = 0.0
         running_samples = 0
-        total_batches = len(self.train_data_loader)
+        train_data_loader = self.get_train_data_loader()
+        total_batches = len(train_data_loader)
         
         start_epoch_time_at = time.time()
 
         epoch_loss = 0.0
         epoch_samples = 0
-        for batch_idx, raw_batch in enumerate(self.train_data_loader):
+        for batch_idx, raw_batch in enumerate(train_data_loader):
             self.optimizer.zero_grad()
             batch_results = self.process_test_batch(raw_batch)
 
@@ -282,11 +287,15 @@ class ModelTrainerBase:
 
     def process_test_batch(self, raw_batch) -> dict:
         raise NotImplementedError("This class method should be implemented by subclasses.")
+    
+    def get_train_data_loader(self):
+        raise NotImplementedError("This class method should be implemented by subclasses.")
 
     def validate(self):
         print()
         print("== VALIDATING MODEL ==")
         print()
+        self.model.eval()
         validation_metrics = self._validate()
         self.model.set_validation_metrics(validation_metrics)
         return validation_metrics

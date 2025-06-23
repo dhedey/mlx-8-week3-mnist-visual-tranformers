@@ -3,7 +3,7 @@ import argparse
 from .models import ModelBase, DEFAULT_MODEL_PARAMETERS
 from .trainer import EncoderOnlyModelTrainer
 
-DEFAULT_MODEL_NAME = DEFAULT_MODEL_PARAMETERS.keys()[0]
+DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Continue training a model')

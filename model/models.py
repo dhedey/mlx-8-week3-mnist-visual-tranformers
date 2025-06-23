@@ -14,24 +14,134 @@ from .common import ModelBase, PersistableData, TrainingHyperparameters
 from .trainer import EncoderOnlyModelTrainer
 
 @dataclass
-class TransformerBasedEncoderModelHyperparameters(PersistableData):
-    transformer_depth: int
+class TransformerEncoderModelHyperparameters(PersistableData):
+    encoder_blocks: int
     embedding_size: int
-    # TODO
+    kq_dimension: int
+    v_dimension: int
+    mlp_hidden_dimension: int
 
-class TransformerBasedEncoderModel(ModelBase):
-    def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: TransformerBasedEncoderModelHyperparameters):
-        super(TransformerBasedEncoderModel, self).__init__(
+class TransformerEncoderModel(ModelBase):
+    def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: TransformerEncoderModelHyperparameters):
+        super(TransformerEncoderModel, self).__init__(
             model_name=model_name,
             training_parameters=training_parameters,
             model_parameters=model_parameters,
         )
-
-        # TODO
+        self.image_block_embedding = nn.Linear(
+            in_features=7 * 7, # Each block is 7x7 pixels
+            out_features=model_parameters.embedding_size,
+        )
+        self.encoder_blocks = nn.ModuleList([
+            EncoderBlock(
+                kq_dimension=model_parameters.kq_dimension,
+                v_dimension=model_parameters.v_dimension,
+                embedding_dimension=model_parameters.embedding_size,
+                mlp_hidden_dimension=model_parameters.mlp_hidden_dimension,
+            )
+            for _ in range(model_parameters.encoder_blocks)
+        ])
+        self.prediction_layer = nn.Linear(model_parameters.embedding_size, 10)
     
     @classmethod
     def hyper_parameters_class(cls) -> type[PersistableData]:
-        return TransformerBasedEncoderModelHyperparameters
+        return TransformerEncoderModelHyperparameters
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Assumes it receives a (Batch(es), ChannelCount=1, Height=28, Width=28) tensor of images."""
+        # Unfold into 7x7 blocks
+        x = torch.nn.Unfold(       # Shape: (Batch(es), Channel=1*(7*7), NumBlocks = 4*4)
+            kernel_size=(7, 7),
+            stride=(7, 7),
+            padding=0,
+        )(x)
+        x = x.transpose(-1, -2)    # Shape: (Batch(es), NumBlocks = 16, Channel=1*(7*7))
+
+        residual_stream = self.image_block_embedding(x) # Shape: (Batch(es), NumBlocks = 16, Embedding Dimension)
+
+        for encoder_block in self.encoder_blocks:
+            residual_stream = encoder_block(residual_stream)
+
+        averaged_embedding = residual_stream.mean(dim=-2)        # Average over the blocks, Shape: (Batch(es), Embedding Dimension)
+        logits = self.prediction_layer(averaged_embedding)  # Shape: (Batch(es), 10)
+
+        return logits
+
+class EncoderBlock(nn.Module):
+    def __init__(
+            self,
+            kq_dimension:int,
+            v_dimension: int,
+            embedding_dimension: int,
+            mlp_hidden_dimension: Optional[int] = None,
+        ):
+        super().__init__()
+        self.attention_head = UnmaskedAttentionHead(
+            kq_dimension=kq_dimension,
+            v_dimension=v_dimension,
+            encoder_embedding_dimension=embedding_dimension,
+            decoder_embedding_dimension=embedding_dimension,
+        )
+        self.layer_norm_1 = nn.LayerNorm(embedding_dimension)
+        if mlp_hidden_dimension is None:
+            mlp_hidden_dimension = embedding_dimension * 4 # Commonly used in transformers
+        self.mlp = MultiLayerPerceptron(
+            embedding_dimension=embedding_dimension,
+            hidden_dimension=embedding_dimension * 4,
+        )
+        self.layer_norm_2 = nn.LayerNorm(embedding_dimension)
+
+    def forward(self, residual_stream):
+        # Shape: (Batch, Sequence Length, Embedding Dimension)
+        residual_stream = residual_stream + self.attention_head(residual_stream, residual_stream)
+        residual_stream = self.layer_norm_1(residual_stream)
+        residual_stream = residual_stream + self.mlp(residual_stream)         
+        residual_stream = self.layer_norm_2(residual_stream)
+
+        return residual_stream
+    
+class MultiLayerPerceptron(nn.Module):
+    def __init__(self, embedding_dimension: int, hidden_dimension: int):
+        super().__init__()
+        self.fc1 = nn.Linear(embedding_dimension, hidden_dimension)
+        self.fc2 = nn.Linear(hidden_dimension, embedding_dimension)
+    
+    def forward(self, x):
+        # x has            Shape: (batch_size, sequence_length, embedding_dimension)
+        x = self.fc1(x)  # Shape: (batch_size, sequence_length, hidden_dimension)
+        x = F.relu(x)
+        x = self.fc2(x)  # Shape: (batch_size, sequence_length, embedding_dimension)
+        return x
+    
+class UnmaskedAttentionHead(nn.Module):
+    def __init__(self, kq_dimension, v_dimension, encoder_embedding_dimension, decoder_embedding_dimension):
+        super().__init__()
+        self.kq_dimension = kq_dimension
+        self.v_dimension = v_dimension
+        self.encoder_embedding_dimension = encoder_embedding_dimension
+        self.decoder_embedding_dimension = decoder_embedding_dimension
+
+        self.query_projection = nn.Linear(decoder_embedding_dimension, kq_dimension)
+        self.key_projection = nn.Linear(encoder_embedding_dimension, kq_dimension)
+        self.value_projection = nn.Linear(encoder_embedding_dimension, v_dimension)
+        
+        # NB - Unlike many transformer implementations, we have a per-head output projection for easy of understanding.
+        self.output_projection = nn.Linear(v_dimension, decoder_embedding_dimension)
+
+    def forward(self, encoder_embeddings, decoder_embeddings):
+        queries = self.query_projection(decoder_embeddings)  # Shape: (batch_size, decoder_sequence_length, kq_dimension)
+        keys = self.key_projection(encoder_embeddings)       # Shape: (batch_size, encoder_sequence_length, kq_dimension)
+        values = self.value_projection(encoder_embeddings)   # Shape: (batch_size, encoder_sequence_length, v_dimension)
+
+        attention_scores = queries @ keys.transpose(-2, -1)  # Shape: (batch_size, decoder_sequence_length, encoder_sequence_length)
+
+        # Softmax over the encoder_sequence_length (keys), so each query 'column' sums to 1
+        attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
+
+        output_values = attention @ values                   # Shape: (batch_size, decoder_sequence_length, v_dimension)
+        
+        residual = self.output_projection(output_values)     # Shape: (batch_size, decoder_sequence_length, decoder_embedding_dimension)
+        return residual
 
 class HiddenLayer(nn.Module):
     def __init__(self, input_size, output_size, include_layer_norm, dropout):
@@ -57,11 +167,14 @@ DEFAULT_MODEL_PARAMETERS = {
             epochs=20,
             learning_rate=0.002,
         ),
-        "model": TransformerBasedEncoderModelHyperparameters(
-            transformer_depth=3,
+        "model": TransformerEncoderModelHyperparameters(
+            encoder_blocks=3,
             embedding_size=32,
+            kq_dimension=16,
+            v_dimension=16,
+            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
         ),
-        "model_class": TransformerBasedEncoderModel,
+        "model_class": TransformerEncoderModel,
         "model_trainer": EncoderOnlyModelTrainer,
     }
 }

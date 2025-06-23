@@ -1,5 +1,6 @@
 # ML Specific
 wandb
+datasets
 
 # Python specific
 __pycache__/
