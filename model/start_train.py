@@ -28,9 +28,14 @@ if __name__ == "__main__":
     print(f"Starting training model: {model_name}")
 
     parameters = DEFAULT_MODEL_PARAMETERS[model_name]
+    training_params = parameters["training"]
+    if args.early_stopping:
+        training_params.early_stopping = True
+        print("Early stopping enabled via command line argument")
+
     model = parameters["model_class"](
         model_name=model_name,
-        training_parameters=parameters["training"],
+        training_parameters=training_params,
         model_parameters=parameters["model"],
     )
 
