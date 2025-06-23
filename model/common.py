@@ -126,7 +126,8 @@ class TrainingHyperparameters(PersistableData):
     batch_size: int
     epochs: int
     learning_rate: float
-    optimizer: str = "adam" # "adam" or "adamw"
+    warmup_epochs: int = 0 # Number of epochs to warm up the learning rate
+    optimizer: str = "adam" # "adam" or "adamw". Default should be changed to "adamw" in the future.
 
 class ModelBase(PersistableModel):
     validation_metrics: Optional[dict] = None
@@ -243,6 +244,18 @@ class ModelTrainerBase:
 
     def train_epoch(self):
         self.model.train()
+
+        # TODO: Replace with a scheduler for learning rate
+        if self.epoch <= self.model.training_parameters.warmup_epochs:
+            warmup_factor = self.epoch / self.model.training_parameters.warmup_epochs
+            learning_rate = self.model.training_parameters.learning_rate * warmup_factor
+            print(f"Warmup epoch {self.epoch}, learning rate set to {warmup_factor} * {self.model.training_parameters.learning_rate:.6f} = {learning_rate:.6f}")
+        else:
+            learning_rate = self.model.training_parameters.learning_rate
+
+        # Apply the learning rate, even if out of warmup, to ensure warmup is disabled
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.model.training_parameters.learning_rate * warmup_factor
 
         print_every = 10
         running_loss = 0.0
