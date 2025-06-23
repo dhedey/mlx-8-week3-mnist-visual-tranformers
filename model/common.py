@@ -194,6 +194,8 @@ class ModelTrainerBase:
             self.latest_training_loss = None
             self.latest_validation_loss = None
 
+        self.latest_validation_epoch = None
+
         if override_to_epoch is not None:
             self.model.training_parameters.epochs = override_to_epoch
             print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
@@ -207,6 +209,7 @@ class ModelTrainerBase:
             self.epoch += 1
             print(f"Starting epoch {self.epoch}/{self.model.training_parameters.epochs}")
             last_epoch_results = self.train_epoch()
+            print()
             if self.epoch % self.validate_and_save_after_epochs == 0 or self.epoch == self.model.training_parameters.epochs:
                 validation_metrics = self.validate()
 
@@ -222,6 +225,7 @@ class ModelTrainerBase:
                     wandb.log(log_data)
 
             self.save_model()
+            print()
 
         print("Training complete.")
 
@@ -290,6 +294,7 @@ class ModelTrainerBase:
         validation_metrics = self._validate()
         self.model.set_validation_metrics(validation_metrics)
         self.latest_validation_loss = validation_metrics["average_loss"]
+        self.latest_validation_epoch = self.epoch
         return validation_metrics
 
     def _validate(self) -> dict: 
@@ -307,6 +312,11 @@ class ModelTrainerBase:
             model_name=self.model.model_name,
             training_state=training_state
         )
+
+        if self.latest_validation_epoch is None or self.latest_validation_loss is None or self.latest_validation_epoch < self.epoch:
+            print("No new validation loss available, skipping comparison with the best model.")
+            return
+
         best_model_name = self.model.model_name + '-best'
         try:
             _, best_training_state = ModelBase.load_for_training(model_name=best_model_name, device="cpu")
@@ -319,7 +329,7 @@ class ModelTrainerBase:
         def format_optional_float(value):
             return f"{value:.3g}" if value is not None else "N/A"
 
-        is_improvement = self.latest_validation_loss is not None and (best_validation_loss is None or self.latest_validation_loss < best_validation_loss)
+        is_improvement = best_validation_loss is None or self.latest_validation_loss < best_validation_loss
         if is_improvement:
             print(f"The current validation loss {format_optional_float(self.latest_validation_loss)} is better than the previous best validation loss {format_optional_float(best_validation_loss)} from epoch {best_validation_epoch}, saving as {best_model_name}...")
             self.model.save_model_data(model_name=best_model_name, training_state=training_state)

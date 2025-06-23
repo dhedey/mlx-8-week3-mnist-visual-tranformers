@@ -210,8 +210,9 @@ DEFAULT_MODEL_PARAMETERS = {
         
 if __name__ == "__main__":
    for model_name, parameters in DEFAULT_MODEL_PARAMETERS.items():
-       print(f"Loading Model: {model_name}")
-       model = ModelBase.load_for_evaluation(model_name)
+       best_version = f"{model_name}-best"
+       print(f"Loading Model: {best_version}")
+       model = ModelBase.load_for_evaluation(best_version)
        print(f"Validation Metrics: {model.validation_metrics}")
 
        # Re-validate the model to check the loading has worked correctly
