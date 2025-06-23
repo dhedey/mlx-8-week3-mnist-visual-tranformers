@@ -105,7 +105,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
 
         with torch.no_grad():
             self.model.eval()
-            for raw_batch in self.train_loader:
+            for raw_batch in self.test_loader:
                 inputs, labels = raw_batch # Shape: (BatchSize, Channels=1, 28, 28) and (BatchSize)
 
                 criterion = nn.CrossEntropyLoss()

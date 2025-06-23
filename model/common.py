@@ -298,6 +298,7 @@ class ModelTrainerBase:
         self.model.eval()
         validation_metrics = self._validate()
         self.model.set_validation_metrics(validation_metrics)
+        self.latest_validation_loss = validation_metrics["average_loss"]
         return validation_metrics
 
     def _validate(self) -> dict: 
@@ -317,7 +318,7 @@ class ModelTrainerBase:
         )
         best_model_name = self.model.model_name + '-best'
         try:
-            _, best_training_state = ModelBase.load_for_training(model_name=best_model_name)
+            _, best_training_state = ModelBase.load_for_training(model_name=best_model_name, device="cpu")
             best_validation_loss = best_training_state.latest_validation_loss
             best_validation_epoch = best_training_state.epoch
         except Exception:
@@ -325,7 +326,7 @@ class ModelTrainerBase:
             best_validation_epoch = None
 
         def format_optional_float(value):
-            return f"{value:.2f}" if value is not None else "N/A"
+            return f"{value:.3g}" if value is not None else "N/A"
 
         is_improvement = self.latest_validation_loss is not None and (best_validation_loss is None or self.latest_validation_loss < best_validation_loss)
         if is_improvement:

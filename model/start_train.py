@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     trainer = EncoderOnlyModelTrainer(
         model=model.to(device),
-        validate_after_epochs=1
+        validate_after_epochs=5,
     )
     trainer.train()
 
