@@ -126,6 +126,8 @@ class TrainingHyperparameters(PersistableData):
     batch_size: int
     epochs: int
     learning_rate: float
+    early_stopping: bool = False
+    early_stopping_patience: int = 5
 
 
 class ModelBase(PersistableModel):
@@ -178,7 +180,8 @@ class ModelTrainerBase:
 
         self.model = model
         self.validate_and_save_after_epochs = validate_after_epochs
-
+        self.best_validation_loss = None
+        self.early_stopping_counter = 0
         self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
 
         if continuation is not None:
@@ -223,7 +226,17 @@ class ModelTrainerBase:
                         log_data[f"epoch_{key}"] = value
     
                     wandb.log(log_data)
-
+                if self.model.training_parameters.early_stopping:
+                    current_validation_loss = validation_metrics["average_loss"]
+                    
+                    if self.best_validation_loss is None or current_validation_loss < self.best_validation_loss:
+                        self.best_validation_loss = current_validation_loss
+                        self.early_stopping_counter = 0
+                    else:
+                        self.early_stopping_counter += 1
+                        if self.early_stopping_counter * self.validate_and_save_after_epochs >= self.model.training_parameters.early_stopping_patience:
+                            print("Early stopping triggered")
+                            break                
             self.save_model()
             print()
 

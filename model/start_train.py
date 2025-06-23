@@ -16,6 +16,11 @@ if __name__ == "__main__":
         type=str,
         default=DEFAULT_MODEL_NAME,
     )
+    parser.add_argument(
+        '--early-stopping',
+        action='store_true',
+        help='Enable early stopping during training'
+    )
     args = parser.parse_args()
 
     model_name = args.model
