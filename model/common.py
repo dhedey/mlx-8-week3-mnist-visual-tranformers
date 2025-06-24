@@ -176,6 +176,7 @@ class ModelTrainerBase:
             model: ModelBase,
             continuation: Optional[TrainingState] = None,
             override_to_epoch: Optional[int] = None,
+            override_learning_rate: Optional[float] = None,
             validate_after_epochs: int = 5,
         ):
         torch.manual_seed(42)
@@ -184,7 +185,22 @@ class ModelTrainerBase:
         self.validate_and_save_after_epochs = validate_after_epochs
         self.best_validation_loss = None
         self.early_stopping_counter = 0
-        self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
+
+        if override_to_epoch is not None:
+            self.model.training_parameters.epochs = override_to_epoch
+            print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
+
+        if override_learning_rate is not None:
+            print(f"Overriding learning rate to {override_learning_rate}")
+            model.training_parameters.learning_rate = override_learning_rate
+
+        match self.model.training_parameters.optimizer:
+            case "adam":
+                self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case "adamw":
+                self.optimizer = optim.AdamW(self.model.parameters(), lr=model.training_parameters.learning_rate)
+            case _:
+                raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
 
         if continuation is not None:
             self.epoch = continuation.epoch
@@ -200,18 +216,6 @@ class ModelTrainerBase:
             self.latest_validation_loss = None
 
         self.latest_validation_epoch = None
-
-        if override_to_epoch is not None:
-            self.model.training_parameters.epochs = override_to_epoch
-            print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
-
-        match self.model.training_parameters.optimizer:
-            case "adam":
-                self.optimizer = optim.Adam(self.model.parameters(), lr=model.training_parameters.learning_rate)
-            case "adamw":
-                self.optimizer = optim.AdamW(self.model.parameters(), lr=model.training_parameters.learning_rate)
-            case _:
-                raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
 
     def train(self):
         print("Beginning training...")
@@ -298,13 +302,13 @@ class ModelTrainerBase:
 
             batch_num = batch_idx + 1
             if batch_num % print_every == 0:
-                print(f"Epoch {self.epoch}, Batch {batch_num}/{total_batches}, Average Loss: {(running_loss / running_samples):.4f}")
+                print(f"Epoch {self.epoch}, Batch {batch_num}/{total_batches}, Average Loss: {(running_loss / running_samples):.3g}")
                 running_loss = 0.0
                 running_samples = 0
 
         average_loss = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
         training_time = time.time() - start_epoch_time_at
-        print(f"Epoch {self.epoch} complete (Average Loss: {average_loss:.4f}, Time: {training_time:.1f}s)")
+        print(f"Epoch {self.epoch} complete (Average Loss: {average_loss:.3g}, Time: {training_time:.1f}s)")
 
         if self.total_training_time_seconds is not None:
             self.total_training_time_seconds += training_time

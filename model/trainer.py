@@ -21,12 +21,14 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             model: ModelBase,
             continuation: Optional[TrainingState] = None,
             override_to_epoch: Optional[int] = None,
+            override_learning_rate: Optional[float] = None,
             validate_after_epochs: int = 5,
         ):
         super().__init__(
             model=model,
             continuation=continuation,
             override_to_epoch=override_to_epoch,
+            override_learning_rate=override_learning_rate,
             validate_after_epochs=validate_after_epochs,
         )
 
@@ -127,7 +129,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
         average_probability_of_correct = total_probability_of_correct / num_samples if num_samples > 0 else 0.0
         average_loss = total_loss / num_samples if num_samples > 0 else 0.0
 
-        print(f"Validation complete: {num_samples} samples, {total_correct} correct, {average_loss:.2} average loss")
+        print(f"Validation complete: {num_samples} samples, {total_correct} correct, {average_loss:.3g} average loss")
         print(f"* Accuracy: {proportion_correct:.2%} correct")
         print(f"* Average Loss: {average_loss}")
         print(f"* Average confidence in correct answer: {average_probability_of_correct:.2%}")

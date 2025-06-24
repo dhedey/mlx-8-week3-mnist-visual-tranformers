@@ -20,6 +20,7 @@ class TransformerEncoderModelHyperparameters(PersistableData):
     kq_dimension: int
     v_dimension: int
     mlp_hidden_dimension: int
+    heads_per_layer: int = field(default=1, metadata={"description": "Number of attention heads per encoder block."})
     add_positional_bias: bool = field(default=False, metadata={"description": "Whether to add a positional bias to the block embeddings."})
     mlp_dropout: float = field(default=0.0, metadata={"description": "Dropout rate for the MLP layers."})
 
@@ -41,6 +42,7 @@ class TransformerEncoderModel(ModelBase):
                 embedding_dimension=model_parameters.embedding_size,
                 mlp_hidden_dimension=model_parameters.mlp_hidden_dimension,
                 mlp_dropout=model_parameters.mlp_dropout,
+                attention_heads=model_parameters.heads_per_layer,
             )
             for _ in range(model_parameters.encoder_blocks)
         ])
@@ -86,15 +88,27 @@ class EncoderBlock(nn.Module):
             v_dimension: int,
             embedding_dimension: int,
             mlp_dropout: float,
+            attention_heads: int,
             mlp_hidden_dimension: Optional[int] = None,
         ):
         super().__init__()
-        self.attention_head = UnmaskedAttentionHead(
-            kq_dimension=kq_dimension,
-            v_dimension=v_dimension,
-            encoder_embedding_dimension=embedding_dimension,
-            decoder_embedding_dimension=embedding_dimension,
-        )
+        attention_heads = [
+            UnmaskedAttentionHead(
+                kq_dimension=kq_dimension,
+                v_dimension=v_dimension,
+                encoder_embedding_dimension=embedding_dimension,
+                decoder_embedding_dimension=embedding_dimension,
+            )
+            for _ in range(attention_heads)
+        ]
+        # Backwards compatibility
+        if len(attention_heads) > 1:
+            self.attention_head = attention_heads[0]
+            self.attention_heads = None
+        else:
+            self.attention_heads = nn.ModuleList(attention_heads)
+            self.attention_head = None
+        
         self.layer_norm_1 = nn.LayerNorm(embedding_dimension)
         if mlp_hidden_dimension is None:
             mlp_hidden_dimension = embedding_dimension * 4 # Commonly used in transformers
@@ -107,7 +121,10 @@ class EncoderBlock(nn.Module):
 
     def forward(self, residual_stream):
         # Shape: (Batch, Sequence Length, Embedding Dimension)
-        residual_stream = residual_stream + self.attention_head(residual_stream, residual_stream)
+        attention_heads = self.attention_heads if self.attention_heads is not None else [self.attention_head]
+        attention_head_results = [head(residual_stream, residual_stream) for head in attention_heads]
+        for result in attention_head_results:
+            residual_stream = residual_stream + result
         residual_stream = self.layer_norm_1(residual_stream)
         residual_stream = residual_stream + self.mlp(residual_stream)         
         residual_stream = self.layer_norm_2(residual_stream)
@@ -151,7 +168,7 @@ class UnmaskedAttentionHead(nn.Module):
 
         attention_scores = queries @ keys.transpose(-2, -1)  # Shape: (batch_size, decoder_sequence_length, encoder_sequence_length)
 
-        # Softmax over the encoder_sequence_length (keys), so each query 'column' sums to 1
+        # Softmax over the encoder_sequence_length (keys), so each query row sums to 1
         attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
 
         output_values = attention @ values                   # Shape: (batch_size, decoder_sequence_length, v_dimension)
@@ -177,6 +194,27 @@ class HiddenLayer(nn.Module):
         return x
 
 DEFAULT_MODEL_PARAMETERS = {
+    "encoder-only-big": {
+        "training": TrainingHyperparameters(
+            batch_size=256,
+            epochs=50,
+            learning_rate=0.002,
+            optimizer="adamw",
+            warmup_epochs=5,
+        ),
+        "model": TransformerEncoderModelHyperparameters(
+            encoder_blocks=5,
+            embedding_size=32,
+            kq_dimension=16,
+            v_dimension=16,
+            mlp_hidden_dimension=128,
+            mlp_dropout=0.3,
+            add_positional_bias=True,
+            heads_per_layer=2,
+        ),
+        "model_class": TransformerEncoderModel,
+        "model_trainer": EncoderOnlyModelTrainer,
+    },
     "encoder-only-positional-dropout": {
         "training": TrainingHyperparameters(
             batch_size=256,

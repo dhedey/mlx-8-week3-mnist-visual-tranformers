@@ -18,6 +18,11 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
+        '--learning-rate',
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
         '--immediate-validation',
         type=bool,
         default=False,
@@ -32,6 +37,7 @@ if __name__ == "__main__":
         model=model,
         continuation=training_state,
         override_to_epoch=args.end_epoch,
+        override_learning_rate=args.learning_rate,
         validate_after_epochs=1,
     )
     if args.immediate_validation:
