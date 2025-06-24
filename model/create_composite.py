@@ -200,7 +200,12 @@ def create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_
     
     return canvas_array, sequence_label
 
-def generate_composite_batch(dataset, batch_size, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
+def get_composite_image_and_sequence(dataset, min_digits = 1, max_digits = 6, canvas_size=(256, 256), digit_size=28):
+    num_digits = random.randint(min_digits, max_digits)
+    canvas, sequence = create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False)
+    return canvas, sequence
+
+def generate_composite_batch(dataset, batch_size = 1, min_digits = 1, max_digits = 6, canvas_size=(256, 256), digit_size=28):
     """
     Generate a batch of composite images.
 
@@ -216,10 +221,10 @@ def generate_composite_batch(dataset, batch_size, min_digits = 1, max_digits = 5
     sequence_list = []
     for i in range(batch_size):
         num_digits = random.randint(min_digits, max_digits)
-        canvas, sequence = create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False, verbose=False)
+        canvas, sequence = create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False)
         canvas_list.append(canvas)
         sequence_list.append(sequence)
-    return torch.tensor(np.array(canvas_list)), torch.tensor(sequence_list)
+    return torch.tensor(canvas_list), torch.tensor(sequence_list)
 
 def main():
     parser = argparse.ArgumentParser(description='Create composite MNIST images')

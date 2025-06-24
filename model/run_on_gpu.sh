@@ -15,8 +15,8 @@ git clone https://github.com/dhedey/mlx-8-week3-mnist-visual-tranformers
 cd mlx-8-week3-mnist-visual-tranformers
 
 # Change if you're someone else!
-git config --global user.email "mli@david-edey.com"
-git config --global user.name "David Edey"
+git config --global user.email "nikolaskuhn@gmx.de"
+git config --global user.name "nick-kuhn"
 # You can generate a new token at https://github.com/settings/personal-access-tokens
 # => Select only this repository
 # => Select Read and Write access to Contents (AKA Code)

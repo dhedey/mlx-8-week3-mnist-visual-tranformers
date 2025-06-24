@@ -192,9 +192,6 @@ class MaskedSelfAttention(nn.Module):
         self._cached_mask_device = None
         self._cached_mask_sequence_length = None
 
-    def get_causal_mask(self, sequence_length):
-        mask = torch.triu(torch.ones(sequence_length, sequence_length), diagonal=1, dtype=torch.bool)
-        return mask
 
     def forward(self, x): #x has shape (batch_size, sequence_length, embedding_dimension)
         queries = self.query_projection(x).reshape(*x.shape[:-2], self.num_heads, self.kq_dimension).transpose(-2, -3)  # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
@@ -204,10 +201,10 @@ class MaskedSelfAttention(nn.Module):
         attention_scores = queries @ keys.transpose(-2, -1) # Shape: (batch_size, num_heads, sequence_length, sequence_length)
         if self.mask_future_tokens:
             if self._cached_mask is None or self._cached_mask_device != x.device or self._cached_mask_sequence_length != x.shape[-2]:
+            # Create a causal mask for the attention scores (ones indicate positions to mask    )
                 self._cached_mask = torch.triu(torch.ones(x.shape[-2], x.shape[-2]), diagonal=1, dtype=torch.bool, device=x.device)
+                self._cached_mask_sequence_length = x.shape[-2] 
                 self._cached_mask_device = x.device
-                self._cached_mask_sequence_length = x.shape[-2]
-            # Create a causal mask for the attention scores (ones indicate positions to mask)
             attention_scores = attention_scores.masked_fill(self._cached_mask, float("-inf"))
 
         attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
