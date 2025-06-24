@@ -243,6 +243,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
             "total_loss": loss,
             "logits": logits,
             "num_samples": len(images),
+            "expected_sequences": expected_sequences,
         }
     
     def _validate(self):
@@ -262,7 +263,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
             batch_results = self.process_batch(raw_batch)
             logits = batch_results["logits"]
             expected_sequences = batch_results["expected_sequences"]
-            loss = batch_results["loss"]
+            loss = batch_results["total_loss"]
             probabilities = F.softmax(logits, dim=1)
 
             for instance_logits, instance_expected, instance_probabilities in zip(logits, expected_sequences, probabilities):

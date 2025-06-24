@@ -118,12 +118,13 @@ class ImageSequenceTransformer(ModelBase):
         )
         self.image_block_size = model_parameters.image_block_size
         self.image_block_embedding = nn.Linear(
-            in_features=model_parameters.image_block_size * model_parameters.image_block_size,
+            in_features= model_parameters.image_block_size * model_parameters.image_block_size,
             out_features=model_parameters.encoder_embedding_size,
         )
         self.image_positional_bias = nn.Parameter(
-            torch.zeros([model_parameters.image_size // model_parameters.image_block_size, model_parameters.image_block_size * model_parameters.image_block_size], dtype=torch.float32),
-        )
+            torch.zeros([(model_parameters.image_size // model_parameters.image_block_size) ** 2, 
+                         model_parameters.encoder_embedding_size], dtype=torch.float32),
+        ) #Shape: (encoder_sequence_length, encoder_embedding_size)
 
         self.encoder_blocks = nn.ModuleList([
             EncoderBlock(
@@ -155,14 +156,18 @@ class ImageSequenceTransformer(ModelBase):
             )
             for _ in range(model_parameters.decoder_blocks)
         ])
-        self.decoder_embedding = nn.Embedding(num_embeddings=11, embedding_dim=model_parameters.decoder_embedding_size)
+        # 12 embedding tokens: 10 digits, 1 padding token, 1 start token
+        self.decoder_embedding = nn.Embedding(num_embeddings=12, embedding_dim=model_parameters.decoder_embedding_size, padding_idx= 0) 
         self.decoder_prediction_layer = nn.Linear(model_parameters.decoder_embedding_size, 11)
 
     def forward(self, image, sequence):
 
         # Move to device if not already there
-        image = image.to(self.get_device())
-        sequence = sequence.to(self.get_device())   # Shape: (Batch(es), SequenceLength)
+        image = image.to(self.get_device()) # Shape: (batch_size, 256, 256)
+        sequence = sequence.to(self.get_device())   # Shape: (batch_size, decoder_sequence_length)
+        
+        # Reshape the image to (batch_size, 1, 256, 256)
+        image = image.unsqueeze(-3) # Shape: (batch_size, 1, 256, 256)
 
         # Unfold the image into blocks
         image = torch.nn.Unfold(
@@ -170,14 +175,17 @@ class ImageSequenceTransformer(ModelBase):
             stride=(self.image_block_size, self.image_block_size),
             padding=0,
         )(image)
-        image = image.transpose(-1, -2)    # Shape: (Batch(es), NumBlocks, Channel = self.image_block_size ** 2)
+        image = image.transpose(-1, -2)    # Shape: (batch_size, encoder_blocks, self.image_block_size ** 2)
 
-        image_residuals = self.image_block_embedding(image)
+        image_residuals = self.image_block_embedding(image) #shape: (batch_size, encoder_blocks, encoder_embedding_size)
         image_residuals = image_residuals + self.image_positional_bias
         for encoder_block in self.encoder_blocks:
             image_residuals = encoder_block(image_residuals)
+            
+        #Add 1 to the sequence to get around the padding token
+        sequence_residuals = self.decoder_embedding(sequence + 1)
 
-        sequence_residuals = self.decoder_embedding(sequence)
+
         sequence_residuals = sequence_residuals + self.sequence_positional_bias
 
         for decoder_block in self.decoder_blocks:
@@ -345,22 +353,22 @@ class MaskedSelfAttention(nn.Module):
 
 
     def forward(self, x): #x has shape (batch_size, sequence_length, embedding_dimension)
-        queries = self.query_projection(x).reshape(*x.shape[:-2], self.num_heads, self.kq_dimension).transpose(-2, -3)  # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
-        keys = self.key_projection(x).reshape(*x.shape[:-2], self.num_heads, self.kq_dimension).transpose(-2, -3)       # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
-        values = self.value_projection(x).reshape(*x.shape[:-2], self.num_heads, self.v_dimension).transpose(-2, -3)   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
+        queries = self.query_projection(x).reshape(*x.shape[:-1], self.num_heads, self.kq_dimension).transpose(-2, -3)  # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
+        keys = self.key_projection(x).reshape(*x.shape[:-1], self.num_heads, self.kq_dimension).transpose(-2, -3)       # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
+        values = self.value_projection(x).reshape(*x.shape[:-1], self.num_heads, self.v_dimension).transpose(-2, -3)   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
 
         attention_scores = queries @ keys.transpose(-2, -1) # Shape: (batch_size, num_heads, sequence_length, sequence_length)
         if self.mask_future_tokens:
             if self._cached_mask is None or self._cached_mask_device != x.device or self._cached_mask_sequence_length != x.shape[-2]:
             # Create a causal mask for the attention scores (ones indicate positions to mask    )
-                self._cached_mask = torch.triu(torch.ones(x.shape[-2], x.shape[-2]), diagonal=1, dtype=torch.bool, device=x.device)
+                self._cached_mask = torch.triu(torch.ones((x.shape[-2], x.shape[-2]), dtype=torch.bool, device=x.device), diagonal=1)
                 self._cached_mask_sequence_length = x.shape[-2] 
                 self._cached_mask_device = x.device
             attention_scores = attention_scores.masked_fill(self._cached_mask, float("-inf"))
 
         attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
         output_values = attention @ values                   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
-        output_values = output_values.transpose(-2, -3).reshape(*x.shape[:-2], self.num_heads * self.v_dimension) # Shape: (batch_size, sequence_length, num_heads * v_dimension)
+        output_values = output_values.transpose(-2, -3).reshape(*x.shape[:-1], self.num_heads * self.v_dimension) # Shape: (batch_size, sequence_length, num_heads * v_dimension)
         residual = self.output_projection(output_values)     # Shape: (batch_size, sequence_length, embedding_dimension)
         return residual
 
@@ -392,8 +400,8 @@ DEFAULT_MODEL_PARAMETERS = {
         ),
         "model": ImageSequenceTransformerHyperparameters(
             image_size=256,
-            image_block_size=8,
-            max_sequence_length=10,
+            image_block_size=32,
+            max_sequence_length=11,
             encoder_blocks=3,
             encoder_embedding_size=32,
             encoder_kq_dimension=16,
