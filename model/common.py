@@ -169,30 +169,36 @@ class ModelBase(PersistableModel):
     def hyper_parameters_class(cls) -> type[PersistableData]:
         raise NotImplementedError("This method should be implemented by subclasses.")
 
+@dataclass
+class TrainerParameters:
+    continuation: Optional[TrainingState] = None
+    override_to_epoch: Optional[int] = None
+    override_learning_rate: Optional[float] = None
+    validate_after_epochs: int = 1
 
 class ModelTrainerBase:
     def __init__(
             self,
             model: ModelBase,
-            continuation: Optional[TrainingState] = None,
-            override_to_epoch: Optional[int] = None,
-            override_learning_rate: Optional[float] = None,
-            validate_after_epochs: int = 5,
+            parameters: TrainerParameters = None,
         ):
         torch.manual_seed(42)
 
+        if parameters is None:
+            parameters = TrainerParameters()
+
         self.model = model
-        self.validate_and_save_after_epochs = validate_after_epochs
+        self.validate_and_save_after_epochs = parameters.validate_after_epochs
         self.best_validation_loss = None
         self.early_stopping_counter = 0
 
-        if override_to_epoch is not None:
-            self.model.training_parameters.epochs = override_to_epoch
+        if parameters.override_to_epoch is not None:
+            self.model.training_parameters.epochs = parameters.override_to_epoch
             print(f"Overriding training end epoch to {self.model.training_parameters.epochs}")
 
-        if override_learning_rate is not None:
-            print(f"Overriding learning rate to {override_learning_rate}")
-            model.training_parameters.learning_rate = override_learning_rate
+        if parameters.override_learning_rate is not None:
+            print(f"Overriding learning rate to {parameters.override_learning_rate}")
+            model.training_parameters.learning_rate = parameters.override_learning_rate
 
         match self.model.training_parameters.optimizer:
             case "adam":
@@ -202,6 +208,7 @@ class ModelTrainerBase:
             case _:
                 raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
 
+        continuation = parameters.continuation
         if continuation is not None:
             self.epoch = continuation.epoch
             self.optimizer.load_state_dict(continuation.optimizer_state)

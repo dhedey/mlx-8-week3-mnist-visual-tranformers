@@ -11,7 +11,7 @@ import pandas as pd
 import math
 from typing import Optional, Self
 from .common import ModelBase, PersistableData, TrainingHyperparameters
-from .trainer import EncoderOnlyModelTrainer
+from .trainer import EncoderOnlyModelTrainer, TrainerParameters
 
 @dataclass
 class TransformerEncoderModelHyperparameters(PersistableData):
@@ -102,7 +102,7 @@ class EncoderBlock(nn.Module):
             for _ in range(attention_heads)
         ]
         # Backwards compatibility
-        if len(attention_heads) > 1:
+        if len(attention_heads) == 1:
             self.attention_head = attention_heads[0]
             self.attention_heads = None
         else:
@@ -194,6 +194,27 @@ class HiddenLayer(nn.Module):
         return x
 
 DEFAULT_MODEL_PARAMETERS = {
+    "encoder-only-bigger": {
+        "training": TrainingHyperparameters(
+            batch_size=256,
+            epochs=50,
+            learning_rate=0.0005,
+            optimizer="adamw",
+            warmup_epochs=5,
+        ),
+        "model": TransformerEncoderModelHyperparameters(
+            encoder_blocks=5,
+            embedding_size=64,
+            kq_dimension=16,
+            v_dimension=16,
+            mlp_hidden_dimension=256,
+            mlp_dropout=0.3,
+            add_positional_bias=True,
+            heads_per_layer=2,
+        ),
+        "model_class": TransformerEncoderModel,
+        "model_trainer": EncoderOnlyModelTrainer,
+    },
     "encoder-only-big": {
         "training": TrainingHyperparameters(
             batch_size=256,
@@ -210,7 +231,7 @@ DEFAULT_MODEL_PARAMETERS = {
             mlp_hidden_dimension=128,
             mlp_dropout=0.3,
             add_positional_bias=True,
-            heads_per_layer=2,
+            heads_per_layer=1,
         ),
         "model_class": TransformerEncoderModel,
         "model_trainer": EncoderOnlyModelTrainer,
@@ -274,13 +295,14 @@ DEFAULT_MODEL_PARAMETERS = {
         
 if __name__ == "__main__":
    for model_name, parameters in DEFAULT_MODEL_PARAMETERS.items():
-       best_version = f"{model_name}-best"
-       print(f"Loading Model: {best_version}")
-       model = ModelBase.load_for_evaluation(best_version)
-       print(f"Validation Metrics: {model.validation_metrics}")
-
-       # Re-validate the model to check the loading has worked correctly
-       trainer = parameters["model_trainer"](
-           model=model,
-       )
-       trainer.validate()
+        best_version = f"{model_name}-best"
+        print(f"Loading Model: {best_version}")
+        model = ModelBase.load_for_evaluation(best_version)
+        print(f"Validation Metrics: {model.validation_metrics}")
+   
+        # Re-validate the model to check the loading has worked correctly
+        trainer = parameters["model_trainer"](
+            model=model,
+            parameters=TrainerParameters()
+        )
+        trainer.validate()
