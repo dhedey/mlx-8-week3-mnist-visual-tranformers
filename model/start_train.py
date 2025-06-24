@@ -3,7 +3,7 @@
 import argparse
 from .common import select_device
 from .models import DEFAULT_MODEL_PARAMETERS
-from .trainer import EncoderOnlyModelTrainer
+from .trainer import EncoderOnlyModelTrainer, TrainerParameters
 
 DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
 
@@ -37,11 +37,11 @@ if __name__ == "__main__":
         model_name=model_name,
         training_parameters=training_params,
         model_parameters=parameters["model"],
-    )
+    ).to(device)
 
     trainer = EncoderOnlyModelTrainer(
-        model=model.to(device),
-        validate_after_epochs=1,
+        model=model,
+        parameters=TrainerParameters(),
     )
     trainer.train()
 

@@ -1,7 +1,7 @@
 # Run as uv run -m model.continue_train
 import argparse
 from .models import ModelBase, DEFAULT_MODEL_PARAMETERS
-from .trainer import EncoderOnlyModelTrainer
+from .trainer import EncoderOnlyModelTrainer, TrainerParameters
 
 DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
 
@@ -18,6 +18,11 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
+        '--learning-rate',
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
         '--immediate-validation',
         type=bool,
         default=False,
@@ -30,13 +35,18 @@ if __name__ == "__main__":
 
     trainer = EncoderOnlyModelTrainer(
         model=model,
-        continuation=training_state,
-        override_to_epoch=args.end_epoch,
-        validate_after_epochs=1,
+        parameters=TrainerParameters(
+            continuation=training_state,
+            override_to_epoch=args.end_epoch,
+            override_learning_rate=args.learning_rate,
+            validate_after_epochs=1,
+        ),
     )
+
     if args.immediate_validation:
         print("Immediate validation enabled, running validation before training:")
         trainer.validate()
+
     trainer.train()
 
 
