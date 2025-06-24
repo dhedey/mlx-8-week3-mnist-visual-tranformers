@@ -11,7 +11,7 @@ import pandas as pd
 import math
 from typing import Optional, Self
 from .common import ModelBase, PersistableData, TrainingHyperparameters
-from .trainer import EncoderOnlyModelTrainer, TrainerParameters
+from .trainer import EncoderOnlyModelTrainer, ImageSequenceTransformerTrainer, TrainerParameters
 
 @dataclass
 class TransformerEncoderModelHyperparameters(PersistableData):
@@ -84,30 +84,29 @@ class TransformerEncoderModel(ModelBase):
 
 @dataclass
 class ImageSequenceTransformerHyperparameters(PersistableData):
-
     image_size: int
     image_block_size: int
     max_sequence_length: int
-    # Encoder
+
     encoder_blocks: int
     encoder_embedding_size: int
     encoder_kq_dimension: int
     encoder_v_dimension: int
     encoder_mlp_hidden_dimension: int
-    encoder_heads_per_layer: int = field(default=1, metadata={"description": "Number of attention heads per encoder block."})
+    encoder_heads_per_layer: int
     
     cross_kq_dimension: int
     cross_v_dimension: int
-    cross_heads_per_layer: int = field(default=1, metadata={"description": "Number of attention heads per cross-attention block."})
+    cross_heads_per_layer: int
 
     decoder_blocks: int
     decoder_embedding_size: int
     decoder_kq_dimension: int
     decoder_v_dimension: int
     decoder_mlp_hidden_dimension: int
-    decoder_heads_per_layer: int = field(default=1, metadata={"description": "Number of attention heads per decoder block."})
+    decoder_heads_per_layer: int
 
-    mlp_dropout: float = field(default=0.0, metadata={"description": "Dropout rate for the MLP layers."})
+    mlp_dropout: float
 
 
 class ImageSequenceTransformer(ModelBase):
@@ -383,6 +382,38 @@ class HiddenLayer(nn.Module):
         return x
 
 DEFAULT_MODEL_PARAMETERS = {
+    "decoder-v1": {
+        "training": TrainingHyperparameters(
+            batch_size=128,
+            epochs=20,
+            learning_rate=0.0002,
+            optimizer="adamw",
+            warmup_epochs=5,
+        ),
+        "model": ImageSequenceTransformerHyperparameters(
+            image_size=256,
+            image_block_size=8,
+            max_sequence_length=10,
+            encoder_blocks=3,
+            encoder_embedding_size=32,
+            encoder_kq_dimension=16,
+            encoder_v_dimension=16,
+            encoder_mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
+            encoder_heads_per_layer=1,
+            cross_kq_dimension=16,
+            cross_v_dimension=16,
+            cross_heads_per_layer=1,
+            decoder_blocks=5,
+            decoder_embedding_size=32,
+            decoder_kq_dimension=16,
+            decoder_v_dimension=16,
+            decoder_mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
+            decoder_heads_per_layer=2,
+            mlp_dropout=0.3,
+        ),
+        "model_class": ImageSequenceTransformer,
+        "model_trainer": ImageSequenceTransformerTrainer,
+    },
     "encoder-only-bigger": {
         "training": TrainingHyperparameters(
             batch_size=256,

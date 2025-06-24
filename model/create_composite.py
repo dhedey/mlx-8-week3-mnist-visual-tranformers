@@ -31,7 +31,7 @@ random_transform = v2.Compose([
     v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
 ])
 
-def create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_size=28, show_individual=True, verbose=True):
+def create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_size=28, show_individual=True, verbose=False):
     """
     Create a composite image with randomly positioned MNIST digits.
     
@@ -221,7 +221,13 @@ def generate_composite_batch(dataset, batch_size = 1, min_digits = 1, max_digits
     sequence_list = []
     for i in range(batch_size):
         num_digits = random.randint(min_digits, max_digits)
-        canvas, sequence = create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False)
+        canvas, sequence = create_composite_image(
+            dataset,
+            num_digits,
+            canvas_size,
+            digit_size,
+            show_individual=False,
+        )
         canvas_list.append(canvas)
         sequence_list.append(sequence)
     return torch.tensor(canvas_list), torch.tensor(sequence_list)
@@ -254,7 +260,8 @@ def main():
             dataset=dataset,
             num_digits=args.num_digits,
             canvas_size=(args.canvas_width, args.canvas_height),
-            show_individual=True
+            show_individual=True,
+            verbose=True,
         )
         # Save single image
         plt.savefig(args.output, dpi=150, bbox_inches='tight')
@@ -271,7 +278,8 @@ def main():
                 dataset=dataset,
                 num_digits=args.num_digits,
                 canvas_size=(args.canvas_width, args.canvas_height),
-                show_individual=False
+                show_individual=False,
+                verbose=True,
             )
             images.append(canvas)
             sequences.append(sequence)

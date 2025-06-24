@@ -16,6 +16,7 @@ import os
 from typing import Optional
 import time
 from .common import TrainingState, TrainerParameters, ModelTrainerBase, ModelBase
+from .composite_dataset import CompositeDataset, sequence_collate_fn
 
 class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
@@ -76,7 +77,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
     def get_train_data_loader(self):
         return self.train_loader
 
-    def process_test_batch(self, raw_batch):
+    def process_batch(self, raw_batch):
         inputs, labels = raw_batch
 
         criterion = nn.CrossEntropyLoss()
@@ -138,6 +139,182 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             "average_loss": average_loss,
             "proportion_correct": proportion_correct,
             "average_probability_of_correct": average_probability_of_correct,
+            "totals_by_label": totals_by_label,
+        }
+
+class ImageSequenceTransformerTrainer(ModelTrainerBase):
+    def __init__(
+            self,
+            model: ModelBase,
+            parameters: TrainerParameters,
+            continuation: Optional[TrainingState] = None,
+        ):
+        super().__init__(model=model, parameters=parameters, continuation=continuation)
+
+        print("Preparing datasets...")
+
+        standard_transform = v2.Compose([
+            v2.ToImage(),
+            v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+        ])
+
+        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+        train_sub_image_set = torchvision.datasets.MNIST(
+            data_folder,
+            download=True,
+            transform=standard_transform,
+            train=True,
+        )
+        test_sub_image_set = torchvision.datasets.MNIST(
+            data_folder,
+            download=True,
+            transform=standard_transform,
+            train=False,
+        )
+
+        min_digits = 0
+        max_digits = 10
+        self.max_sequence_length = max_digits + 1 # +1 for start and stop tokens
+        canvas_size = (256, 256)
+
+        train_composite_dataset = CompositeDataset(
+            dataset=train_sub_image_set,
+            length=100000,
+            min_digits=min_digits,
+            max_digits=max_digits,
+            canvas_size=canvas_size,
+            digit_size=28,
+        )
+        test_composite_dataset = CompositeDataset(
+            dataset=test_sub_image_set,
+            length=10000,
+            min_digits=min_digits,
+            max_digits=max_digits,
+            canvas_size=canvas_size,
+            digit_size=28,
+        )
+
+        device = self.model.get_device()
+        pin_memory = device == 'cuda'
+        self.train_loader = torch.utils.data.DataLoader(
+            train_composite_dataset,
+            batch_size=model.training_parameters.batch_size,
+            shuffle=True,
+            num_workers=2,
+            collate_fn=self.collate_fn,
+            pin_memory=pin_memory, # Speed up CUDA
+        )
+        self.test_loader = torch.utils.data.DataLoader(
+            test_composite_dataset,
+            batch_size=model.training_parameters.batch_size,
+            shuffle=True,
+            num_workers=2,
+            collate_fn=self.collate_fn,
+            pin_memory=pin_memory, # Speed up CUDA
+        )
+        print(f"Training set size: {len(train_composite_dataset)}")
+        print(f"Test set size: {len(test_composite_dataset)}")
+
+    def collate_fn(self, batch):
+        return sequence_collate_fn(
+            batch,
+            max_seq_length=self.max_sequence_length,
+            pad_token_id=-1,
+        )
+
+    def get_train_data_loader(self):
+        return self.train_loader
+
+    def process_batch(self, raw_batch):
+        images, input_sequences, expected_sequences = raw_batch
+
+        device = self.model.get_device()
+        images = images.to(device)
+        input_sequences = input_sequences.to(device)
+        expected_sequences = expected_sequences.to(device) # Shape: (BatchSize, SequenceLength) => VocabularyIndex
+
+        criterion = nn.CrossEntropyLoss(ignore_index=-1)
+        logits: torch.Tensor = self.model(images, input_sequences)   # Shape: (BatchSize, SequenceLength, VocabularySize=11) => Probability Source
+
+        # CrossEntropyLoss apparently needs a shape like (BatchSize, SequenceLength, ...)
+        loss = criterion(logits.transpose(-1, -2), expected_sequences)
+
+        return {
+            "total_loss": loss,
+            "logits": logits,
+            "num_samples": len(images),
+        }
+    
+    def _validate(self):
+        total_loss = 0.0
+
+        totals_by_label = [0] * 11
+        correct_by_label = [0] * 11
+
+        total_subimages = 0
+        total_subimages_correct = 0
+        total_probability_of_subimage_correct = 0.0
+
+        total_composites = 0
+        correct_composites = 0
+
+        for raw_batch in self.test_loader:
+            batch_results = self.process_batch(raw_batch)
+            logits = batch_results["logits"]
+            expected_sequences = batch_results["expected_sequences"]
+            loss = batch_results["loss"]
+            probabilities = F.softmax(logits, dim=1)
+
+            for instance_logits, instance_expected, instance_probabilities in zip(logits, expected_sequences, probabilities):
+                all_correct = True
+                for sub_image_logits, expected_label, sub_image_probabilities in zip(instance_logits, instance_expected, instance_probabilities):
+                    if expected_label == -1:
+                        continue
+                    expected_label = expected_label.item()
+                    predicted_label = sub_image_logits.argmax().item()
+                    is_correct = predicted_label == expected_label
+                    totals_by_label[expected_label] += 1
+                    if is_correct:
+                        total_subimages_correct += 1
+                        correct_by_label[expected_label] += 1
+                    else:
+                        all_correct = False
+                    total_probability_of_subimage_correct += instance_probabilities[expected_label].item()
+                    total_subimages += 1
+
+                total_composites += 1
+                if all_correct:
+                    correct_composites += 1
+            
+            total_loss += loss.item()
+
+        proportion_subimages_correct = total_subimages_correct / total_subimages if total_subimages > 0 else 0.0
+        average_probability_of_subimages_correct = total_probability_of_subimage_correct / total_subimages if total_subimages > 0 else 0.0
+        average_loss_per_subimage = total_loss / total_subimages if total_subimages > 0 else 0.0
+
+        proportion_composites_correct = correct_composites / total_composites if total_composites > 0 else 0.0
+
+        print(f"Validation complete: {total_composites} composites, containing {total_subimages} subimages, {total_subimages_correct} correct, {average_loss_per_subimage:.3g} average loss per subimage")
+        print(f"* Accuracy: {proportion_subimages_correct:.2%} subimages correct")
+        print(f"* Accuracy: {proportion_composites_correct:.2%} composites fully correct")
+        print(f"* Average loss for each subimage: {average_loss_per_subimage}")
+        print(f"* Average confidence in each subimage: {average_probability_of_subimages_correct:.2%}")
+        print()
+        print("Proportion subimages correct by actual label:")
+        for i in range(10):
+            label_prop_correct = correct_by_label[i] / totals_by_label[i] if totals_by_label[i] > 0 else 0
+            if i == 10:
+                index_label = "END"
+            else:
+                index_label = f"[{i}]"
+            print(f"* {index_label}: {label_prop_correct:.2%} ({correct_by_label[i]} of {totals_by_label[i]})")
+        print()
+
+        return {
+            "average_loss": average_loss_per_subimage,
+            "proportion_subimages_correct": proportion_subimages_correct,
+            "proportion_composites_correct": proportion_composites_correct,
+            "average_probability_of_subimages_correct": average_probability_of_subimages_correct,
             "totals_by_label": totals_by_label,
         }
 

@@ -18,10 +18,10 @@ class CompositeDataset(Dataset):
         return self.length
 
     def __getitem__(self, idx):
-        canvas, sequence = get_composite_image_and_sequence(self.dataset, 1, self.min_digits, self.max_digits, self.canvas_size, self.digit_size)
-        return canvas[0], sequence[0]
+        canvas, sequence = get_composite_image_and_sequence(self.dataset, self.min_digits, self.max_digits, self.canvas_size, self.digit_size)
+        return torch.tensor(canvas, dtype=torch.float), torch.tensor(sequence, dtype=torch.long)
 
-def sequence_collate_fn(batch, max_seq_length = 10):
+def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1):
     """
     Collate function for autoregressive sequence training.
     
@@ -35,21 +35,20 @@ def sequence_collate_fn(batch, max_seq_length = 10):
     output_sequences = []
 
     START_TOKEN = 10
-    STOP_TOKEN = 11
-    PAD_TOKEN = -1
+    STOP_TOKEN = 10
 
     for image, sequence in batch:
         images.append(image)
         input_sequence = torch.cat((torch.tensor([START_TOKEN], dtype=torch.long), sequence))
         output_sequence = torch.cat((sequence, torch.tensor([STOP_TOKEN], dtype=torch.long)))
 
-        #truncate or pad the sequences to the max_seq_length
+        # Truncate or pad the sequences to the max_seq_length
         if len(input_sequence) > max_seq_length:
             input_sequence = input_sequence[..., :max_seq_length]
             output_sequence = output_sequence[..., :max_seq_length]
         else:
-            input_sequence = torch.cat((input_sequence, torch.full((max_seq_length - len(input_sequence),), PAD_TOKEN)))
-            output_sequence = torch.cat((output_sequence, torch.full((max_seq_length - len(output_sequence),), PAD_TOKEN)))
+            input_sequence = torch.cat((input_sequence, torch.full((max_seq_length - len(input_sequence),), pad_token_id)))
+            output_sequence = torch.cat((output_sequence, torch.full((max_seq_length - len(output_sequence),), pad_token_id)))
 
         input_sequences.append(input_sequence)
         output_sequences.append(output_sequence)

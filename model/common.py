@@ -331,7 +331,7 @@ class ModelTrainerBase:
         epoch_samples = 0
         for batch_idx, raw_batch in enumerate(train_data_loader):
             self.optimizer.zero_grad()
-            batch_results = self.process_test_batch(raw_batch)
+            batch_results = self.process_batch(raw_batch)
 
             loss = batch_results["total_loss"]
             running_samples += batch_results["num_samples"]
@@ -361,7 +361,7 @@ class ModelTrainerBase:
             "average_loss": average_loss,
         }
 
-    def process_test_batch(self, raw_batch) -> dict:
+    def process_batch(self, raw_batch) -> dict:
         raise NotImplementedError("This class method should be implemented by subclasses.")
     
     def get_train_data_loader(self):
