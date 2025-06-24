@@ -313,23 +313,6 @@ DEFAULT_MODEL_PARAMETERS = {
         "model_class": TransformerEncoderModel,
         "model_trainer": EncoderOnlyModelTrainer,
     },
-    "encoder-only": {
-        "training": TrainingHyperparameters(
-            batch_size=128,
-            epochs=20,
-            learning_rate=0.002,
-        ),
-        "model": TransformerEncoderModelHyperparameters(
-            encoder_blocks=3,
-            embedding_size=32,
-            kq_dimension=16,
-            v_dimension=16,
-            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            add_positional_bias=False,
-        ),
-        "model_class": TransformerEncoderModel,
-        "model_trainer": EncoderOnlyModelTrainer,
-    },
 }
 
         

@@ -39,7 +39,7 @@ if __name__ == "__main__":
         model_parameters=parameters["model"],
     ).to(device)
 
-    trainer = EncoderOnlyModelTrainer(
+    trainer = parameters["model_trainer"](
         model=model,
         parameters=TrainerParameters(),
     )

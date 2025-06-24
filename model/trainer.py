@@ -22,8 +22,9 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             self,
             model: ModelBase,
             parameters: TrainerParameters,
+            continuation: Optional[TrainingState] = None,
         ):
-        super().__init__(model=model, parameters=parameters)
+        super().__init__(model=model, parameters=parameters, continuation=continuation)
 
         print("Preparing datasets...")
 

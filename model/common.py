@@ -33,6 +33,7 @@ def select_device():
 class TrainingState(PersistableData):
     epoch: int
     optimizer_state: dict
+    model_trainer_class_name: Optional[str] = None
     total_training_time_seconds: Optional[float] = None
     latest_training_loss: Optional[float] = None
     latest_validation_loss: Optional[float] = None
@@ -116,9 +117,10 @@ class PersistableModel(nn.Module):
     
     @classmethod
     def load_for_training(cls, model_name: str, device: Optional[str] = None) -> tuple[Self, TrainingState]:
+        """You might want to use ModelTrainerBase.load_with_model(model_name) instead of this method."""
         model, training_state = cls.load(model_name=model_name, device=device, for_evaluation_only=False)
         model.train()
-        return (model, training_state)
+        return model, training_state
 
 
 @dataclass
@@ -171,15 +173,49 @@ class ModelBase(PersistableModel):
 
 @dataclass
 class TrainerParameters:
-    continuation: Optional[TrainingState] = None
     override_to_epoch: Optional[int] = None
     override_learning_rate: Optional[float] = None
     validate_after_epochs: int = 1
 
 class ModelTrainerBase:
+    registered_types: dict[str, type] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls.__name__ in ModelTrainerBase.registered_types:
+            raise ValueError(f"ModelTrainer {cls.__name__} is a duplicate classname. Use a new class name.")
+        ModelTrainerBase.registered_types[cls.__name__] = cls
+
+    @classmethod
+    def load_with_model(cls, model_name: str, parameters: TrainerParameters, device: Optional[str] = None) -> Self:
+        model, continuation = ModelBase.load_for_training(model_name=model_name, device=device)
+        trainer = cls.load(model=model, continuation=continuation, parameters=parameters)
+        return trainer
+
+    @classmethod
+    def load(cls, model: ModelBase, continuation: TrainingState, parameters: TrainerParameters) -> Self:
+        trainer_class_name = continuation.model_trainer_class_name
+
+        registered_types = ModelTrainerBase.registered_types
+        if trainer_class_name not in registered_types:
+            raise ValueError(f"Trainer class {trainer_class_name} is not a known ModelTrainer. Available classes: {list(registered_types.keys())}")
+        trainer_class: type[ModelTrainerBase] = registered_types[trainer_class_name]
+
+        if not issubclass(trainer_class, cls):
+            raise ValueError(f"The trainer was attempted to be loaded with {cls.__name__}.load(..) with a trainer class of \"{trainer_class_name}\"), but {trainer_class_name} is not a subclass of {cls}.")
+
+        trainer = trainer_class(
+            model=model,
+            continuation=continuation,
+            parameters=parameters,
+        )
+
+        return trainer
+
     def __init__(
             self,
             model: ModelBase,
+            continuation: Optional[TrainingState] = None,
             parameters: TrainerParameters = None,
         ):
         torch.manual_seed(42)
@@ -208,7 +244,6 @@ class ModelTrainerBase:
             case _:
                 raise ValueError(f"Unsupported optimizer type: {self.model.training_parameters.optimizer}")
 
-        continuation = parameters.continuation
         if continuation is not None:
             self.epoch = continuation.epoch
             self.optimizer.load_state_dict(continuation.optimizer_state)
@@ -350,6 +385,7 @@ class ModelTrainerBase:
         training_state = TrainingState(
             epoch=self.epoch,
             optimizer_state=self.optimizer.state_dict(),
+            model_trainer_class_name=self.__class__.__name__,
             total_training_time_seconds=self.total_training_time_seconds,
             latest_training_loss=self.latest_training_loss,
             latest_validation_loss=self.latest_validation_loss,
