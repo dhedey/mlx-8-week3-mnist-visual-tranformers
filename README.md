@@ -20,3 +20,7 @@ Run the following, with an optional `--model "model_name"` parameter
 ```bash
 uv run -m model.start_train
 ```
+
+# TODOs
+
+Try RoPE for positional encoding
