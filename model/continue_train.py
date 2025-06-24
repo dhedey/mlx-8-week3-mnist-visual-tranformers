@@ -1,7 +1,7 @@
 # Run as uv run -m model.continue_train
 import argparse
 from .models import ModelBase, DEFAULT_MODEL_PARAMETERS
-from .trainer import EncoderOnlyModelTrainer, TrainerParameters
+from .trainer import ModelTrainerBase, TrainerParameters
 
 DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
 
@@ -27,19 +27,19 @@ if __name__ == "__main__":
         type=bool,
         default=False,
     )
+    parser.add_argument(
+        '--validate-after-epochs',
+        type=int,
+        default=1,
+    )
     args = parser.parse_args()
 
-    model, training_state = ModelBase.load_for_training(
-        model_name=args.model
-    )
-
-    trainer = EncoderOnlyModelTrainer(
-        model=model,
+    trainer = ModelTrainerBase.load_with_model(
+        model_name=args.model,
         parameters=TrainerParameters(
-            continuation=training_state,
             override_to_epoch=args.end_epoch,
             override_learning_rate=args.learning_rate,
-            validate_after_epochs=1,
+            validate_after_epochs=args.validate_after_epochs,
         ),
     )
 
