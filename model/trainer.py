@@ -261,7 +261,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
 
         for raw_batch in self.test_loader:
             batch_results = self.process_batch(raw_batch)
-            logits = batch_results["logits"]
+            logits = batch_results["logits"] # Shape: (BatchSize, SequenceLength, VocabularySize=11) 
             expected_sequences = batch_results["expected_sequences"]
             loss = batch_results["total_loss"]
             probabilities = F.softmax(logits, dim=1)
@@ -280,7 +280,8 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
                         correct_by_label[expected_label] += 1
                     else:
                         all_correct = False
-                    total_probability_of_subimage_correct += instance_probabilities[expected_label].item()
+                    
+                    total_probability_of_subimage_correct += sub_image_probabilities[expected_label].item()
                     total_subimages += 1
 
                 total_composites += 1
