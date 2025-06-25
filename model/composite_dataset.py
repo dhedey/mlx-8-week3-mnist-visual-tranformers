@@ -4,6 +4,7 @@ import torch
 import torchvision
 import random
 import einops
+from tqdm import tqdm
 
 class BesCombine(Dataset):
   def __init__(self, train=True):
@@ -50,12 +51,19 @@ class CompositeDataset(Dataset):
         self.canvas_size = canvas_size
         self.digit_size = digit_size
 
+        print(f"Pre-generating {self.length} composite images... this may take a while.")
+        self.canvases = []
+        self.sequences = []
+        for _ in tqdm(range(self.length)):
+            canvas, sequence = get_composite_image_and_sequence(self.dataset, self.min_digits, self.max_digits, self.canvas_size, self.digit_size)
+            self.canvases.append(torch.tensor(canvas, dtype=torch.float).unsqueeze(0))
+            self.sequences.append(torch.tensor(sequence, dtype=torch.long))
+
     def __len__(self):
         return self.length
 
     def __getitem__(self, idx):
-        canvas, sequence = get_composite_image_and_sequence(self.dataset, self.min_digits, self.max_digits, self.canvas_size, self.digit_size)
-        return torch.tensor(canvas, dtype=torch.float), torch.tensor(sequence, dtype=torch.long)
+        return self.canvases[idx], self.sequences[idx]
 
 def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1):
     """

@@ -19,26 +19,26 @@ random.seed(47)
 
 
 if __name__ == '__main__':
-    num_images = 10000
+    num_images = 100000
     batch_size = 512
     num_workers = 4
 
-    # dataset = CompositeDataset(length=num_images)
+    dataset = CompositeDataset(length=num_images)
 
-    # start_time = time.time()
-    # for i in range(num_images):
-    #     dataset[i] #load 100000 images
-    # end_time = time.time()
-    # print(f"Time taken: {end_time - start_time} seconds to load {num_images} images")
+    start_time = time.time()
+    for i in range(num_images):
+        dataset[i] #load 100000 images
+    end_time = time.time()
+    print(f"Time taken: {end_time - start_time} seconds to load {num_images} images")
 
 
-    # dataloader =  DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=sequence_collate_fn, num_workers=num_workers, )
+    dataloader =  DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=sequence_collate_fn, num_workers=num_workers, )
 
-    # start_time = time.time()
-    # for batch in dataloader:
-    #     pass
-    # end_time = time.time()
-    # print(f"Time taken: {end_time - start_time} seconds to load {num_images} images with DataLoader with batch size {batch_size} and {num_workers} workers.")
+    start_time = time.time()
+    for batch in dataloader:
+        pass
+    end_time = time.time()
+    print(f"Time taken: {end_time - start_time} seconds to load {num_images} images with DataLoader with batch size {batch_size} and {num_workers} workers.")
 
     #Do the same thing with the Combine dataset
     combine_dataset = BesCombine(train=True)
