@@ -188,7 +188,8 @@ def train_sweep_run():
             "total_epochs": results.total_epochs,
         }
         for key, value in results.last_validation.model_dump().items():
-            log_data[f"final_validation_{key}"] = value
+            #note: Keys are already prefixed with "validation_"
+            log_data[f"final_{key}"] = value
         wandb.log(log_data)
         
         # Upload model artifacts if enabled
