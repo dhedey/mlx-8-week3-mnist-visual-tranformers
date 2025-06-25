@@ -13,7 +13,7 @@ from typing import Optional, Self
 from .common import ModelBase, ModuleConfig, TrainingConfig, Field
 from .modules.encoder import EncoderBlockConfig, ImageEncoder, ImageEncoderConfig
 from .modules.decoder import DecoderBlockConfig, DecoderBlock
-from .trainer import ModelTrainerBase, EncoderOnlyModelTrainer, ImageSequenceTransformerTrainer, TrainerOverrides
+from .trainer import ModelTrainerBase, EncoderOnlyModelTrainer, DigitSequenceModelTrainer, TrainerOverrides
 
 class SingleDigitModelConfig(ModuleConfig):
     encoder: ImageEncoderConfig
@@ -132,7 +132,7 @@ DEFAULT_MODEL_PARAMETERS = {
             ),
         ),
         "model_class": DigitSequenceModel,
-        "model_trainer": ImageSequenceTransformerTrainer,
+        "model_trainer": DigitSequenceModelTrainer,
     },
     "single-digit-v1": {
         "training": TrainingConfig(

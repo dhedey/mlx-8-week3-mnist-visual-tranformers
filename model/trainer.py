@@ -151,7 +151,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             totals_by_label=totals_by_label,
         )
 
-class ImageSequenceTransformerTrainer(ModelTrainerBase):
+class DigitSequenceModelTrainer(ModelTrainerBase):
     def __init__(
             self,
             model: ModelBase,

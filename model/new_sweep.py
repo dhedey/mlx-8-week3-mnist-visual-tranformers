@@ -10,9 +10,9 @@ It provides more control over the sweep process compared to the CLI-based approa
 import wandb
 import os
 
-from .models import TrainingHyperparameters, ImageSequenceTransformer, ImageSequenceTransformerHyperparameters
-from .trainer import ImageSequenceTransformerTrainer
-from .common import select_device, TrainerParameters
+from .models import DigitSequenceModel, DigitSequenceModelConfig, ImageEncoderConfig, EncoderBlockConfig, DecoderBlockConfig
+from .trainer import DigitSequenceModelTrainer
+from .common import select_device, TrainingConfig, TrainerOverrides
 
 PROJECT_NAME = "week3-mnist-transformers"
 
@@ -126,7 +126,7 @@ def train_sweep_run():
             case _:
                 raise ValueError(f"Unknown positional embedding type: {config.positional_embedding}")
 
-        training_parameters = TrainingHyperparameters(
+        training_config = TrainingConfig(
             batch_size=config.batch_size,
             epochs=config.epochs,
             learning_rate=config.learning_rate,
@@ -134,43 +134,52 @@ def train_sweep_run():
             early_stopping_patience=early_stopping_patience,
         )
 
-        model_parameters = ImageSequenceTransformerHyperparameters(
-            image_size=56,
-            image_block_size=7,
+        model_config = DigitSequenceModelConfig(
             max_sequence_length=11,
+            encoder=ImageEncoderConfig(
+                image_width=56,
+                image_height=56,
+                image_patch_width=7,
+                image_patch_height=7,
+                embedding_dimension=config.embedding_size,
+                encoder_block_count=config.encoder_blocks,
+                encoder_block=EncoderBlockConfig(
+                    kq_dimension=config.kq_size,
+                    v_dimension=config.v_size,
+                    embedding_dimension=config.embedding_size,
+                    num_heads=config.num_heads,
+                    mlp_hidden_dimension=4 * config.embedding_size,
+                    mlp_dropout=0.2,
+                ),
+            ),
+            decoder_block_count=config.decoder_blocks,
+            decoder_block=DecoderBlockConfig(
+                encoder_embedding_dimension=config.embedding_size,
+                decoder_embedding_dimension=config.embedding_size,
 
-            encoder_blocks=config.encoder_blocks,
-            encoder_embedding_size=config.embedding_size,
-            encoder_kq_dimension=config.kq_size,
-            encoder_v_dimension=config.v_size,
-            encoder_mlp_hidden_dimension=4 * config.embedding_size,  # Typical in transformers
-            encoder_heads_per_layer=config.num_heads,
+                self_attention_kq_dimension=config.kq_size,
+                self_attention_v_dimension=config.v_size,
+                self_attention_heads=config.num_heads,
 
-            cross_kq_dimension=config.kq_size,
-            cross_v_dimension=config.v_size,
-            cross_heads_per_layer=config.num_heads,
+                cross_attention_kq_dimension=config.kq_size,
+                cross_attention_v_dimension=config.v_size,
+                cross_attention_heads=config.num_heads,
 
-            decoder_blocks=config.decoder_blocks,
-            decoder_embedding_size=config.embedding_size,
-            decoder_kq_dimension=config.kq_size,
-            decoder_v_dimension=config.v_size,
-            decoder_mlp_hidden_dimension=4 * config.embedding_size,  # Typical in transformers
-            decoder_heads_per_layer=config.num_heads,
-
-            mlp_dropout=0.3,
+                mlp_hidden_dimension=4 * config.embedding_size,
+                mlp_dropout=0.2,
+            ),
         )
 
         # Use wandb run id for unique model naming
         run_id = wandb.run.id
         model_name = f"sweep-run-{run_id}"
 
-        model = ImageSequenceTransformer(
+        model = DigitSequenceModel(
             model_name=model_name,
-            training_parameters=training_parameters,
-            model_parameters=model_parameters,
+            config=model_config,
         )
 
-        trainer = ImageSequenceTransformerTrainer(model=model.to(device), parameters=TrainerParameters())
+        trainer = DigitSequenceModelTrainer(model=model.to(device), config=training_config, overrides=TrainerOverrides())
         results = trainer.train()
         
         # Log final metrics
