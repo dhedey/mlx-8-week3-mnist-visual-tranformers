@@ -3,7 +3,7 @@
 import argparse
 from .common import select_device
 from .models import DEFAULT_MODEL_PARAMETERS
-from .trainer import EncoderOnlyModelTrainer, TrainerParameters
+from .trainer import EncoderOnlyModelTrainer, TrainerOverrides
 
 DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
 
@@ -28,20 +28,15 @@ if __name__ == "__main__":
     print(f"Starting training model: {model_name}")
 
     parameters = DEFAULT_MODEL_PARAMETERS[model_name]
-    training_params = parameters["training"]
-    if args.early_stopping:
-        training_params.early_stopping = True
-        print("Early stopping enabled via command line argument")
 
     model = parameters["model_class"](
         model_name=model_name,
-        training_parameters=training_params,
-        model_parameters=parameters["model"],
+        config=parameters["model"],
     ).to(device)
 
     trainer = parameters["model_trainer"](
         model=model,
-        parameters=TrainerParameters(),
+        config=parameters["training"],
     )
     trainer.train()
 

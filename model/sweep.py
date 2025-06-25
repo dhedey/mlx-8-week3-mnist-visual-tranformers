@@ -10,7 +10,7 @@ It provides more control over the sweep process compared to the CLI-based approa
 import wandb
 import os
 
-from .models import TrainingHyperparameters, TransformerEncoderModel, TransformerEncoderModelHyperparameters
+from .models import TrainingConfig, SingleDigitModel, SingleDigitModelConfig
 from .trainer import EncoderOnlyModelTrainer
 from .common import select_device
 
@@ -80,7 +80,7 @@ def train_sweep_run():
             case _:
                 raise ValueError(f"Unknown positional embedding type: {config.positional_embedding}")
 
-        training_parameters = TrainingHyperparameters(
+        training_parameters = TrainingConfig(
             batch_size=config.batch_size,
             epochs=config.epochs,
             learning_rate=config.learning_rate,
@@ -88,7 +88,7 @@ def train_sweep_run():
             early_stopping_patience=early_stopping_patience,
         )
 
-        model_parameters = TransformerEncoderModelHyperparameters(
+        model_parameters = SingleDigitModelConfig(
             encoder_blocks=config.encoder_blocks,
             embedding_size=config.embedding_size,
             kq_dimension=config.kq_size,
@@ -97,7 +97,7 @@ def train_sweep_run():
             add_positional_bias=add_positional_bias,
         )
 
-        model = TransformerEncoderModel(
+        model = SingleDigitModel(
             model_name="sweep-run",
             training_parameters=training_parameters,
             model_parameters=model_parameters,
@@ -108,11 +108,12 @@ def train_sweep_run():
         
         # Log final metrics
         log_data = {
-            "final_train_average_loss": results['last_epoch']['average_loss'],
-            "total_epochs": results['total_epochs'],
+            "final_train_average_loss": results.last_epoch.average_loss,
+            "total_epochs": results.total_epochs,
         }
-        for key in results['validation']:
-            log_data[f"final_validation_{key}"] = results['validation'][key]
+        validation_metrics = results.last_validation.to_dict()
+        for key in validation_metrics.keys():
+            log_data[f"final_validation_{key}"] = validation_metrics[key]
         wandb.log(log_data)
         
         print(f"✅ Sweep run completed!")

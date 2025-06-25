@@ -15,17 +15,18 @@ import math
 import os
 from typing import Optional
 import time
-from .common import TrainingState, TrainerParameters, ModelTrainerBase, ModelBase
+from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
 from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
 
 class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
             self,
             model: ModelBase,
-            parameters: TrainerParameters,
+            config: TrainingConfig,
+            overrides: Optional[TrainerOverrides] = None,
             continuation: Optional[TrainingState] = None,
         ):
-        super().__init__(model=model, parameters=parameters, continuation=continuation)
+        super().__init__(model=model, config=config, overrides=overrides, continuation=continuation)
 
         print("Preparing datasets...")
 
@@ -59,14 +60,14 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
         pin_memory = device == 'cuda'
         self.train_loader = torch.utils.data.DataLoader(
             train_set,
-            batch_size=model.training_parameters.batch_size,
+            batch_size=self.config.batch_size,
             shuffle=True,
             num_workers=2,
             pin_memory=pin_memory, # Speed up CUDA
         )
         self.test_loader = torch.utils.data.DataLoader(
             test_set,
-            batch_size=model.training_parameters.batch_size,
+            batch_size=self.config.batch_size,
             shuffle=True,
             num_workers=2,
             pin_memory=pin_memory, # Speed up CUDA
@@ -77,19 +78,26 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
     def get_train_data_loader(self):
         return self.train_loader
 
-    def process_batch(self, raw_batch):
+    def process_batch(self, raw_batch) -> BatchResults:
         inputs, labels = raw_batch
+        device = self.model.get_device()
+        inputs = inputs.to(device)
+        labels = labels.to(device)
 
         criterion = nn.CrossEntropyLoss()
         logits = self.model(inputs)
-        loss = criterion(logits, labels.to(self.model.get_device()))
+        loss = criterion(logits, labels)
 
-        return {
-            "total_loss": loss,
-            "num_samples": len(inputs),
-        }
+        return BatchResults(
+            total_loss=loss,
+            num_samples=len(inputs),
+            intermediates={
+                "logits": logits,
+                "labels": labels,
+            }
+        )
     
-    def _validate(self):
+    def _validate(self) -> ValidationResults:
         total_loss = 0.0
         num_samples = 0
 
@@ -100,11 +108,11 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
         total_probability_of_correct = 0.0
 
         for raw_batch in self.test_loader:
-            inputs, labels = raw_batch # Shape: (BatchSize, Channels=1, 28, 28) and (BatchSize)
+            results = self.process_batch(raw_batch)
 
-            criterion = nn.CrossEntropyLoss()
-            logits = self.model(inputs) # Shape: (BatchSize, 10)
-            loss = criterion(logits, labels.to(logits.device))
+            logits = results.intermediates["logits"]
+            labels = results.intermediates["labels"]
+            loss = results.total_loss
             probabilities = F.softmax(logits, dim=1)
 
             for instance_logits, instance_label, instance_probabilities in zip(logits, labels, probabilities):
@@ -118,7 +126,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
                 total_probability_of_correct += instance_probabilities[instance_label].item()
 
             total_loss += loss.item()
-            num_samples += len(inputs)
+            num_samples += results.num_samples
 
         proportion_correct = total_correct / num_samples if num_samples > 0 else 0.0
         average_probability_of_correct = total_probability_of_correct / num_samples if num_samples > 0 else 0.0
@@ -135,21 +143,23 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
             print(f"* {i}: {label_prop_correct:.2%} ({correct_by_label[i]} of {totals_by_label[i]})")
         print()
 
-        return {
-            "average_loss": average_loss,
-            "proportion_correct": proportion_correct,
-            "average_probability_of_correct": average_probability_of_correct,
-            "totals_by_label": totals_by_label,
-        }
+        return ValidationResults(
+            epoch=self.epoch,
+            validation_loss=average_loss,
+            proportion_correct=proportion_correct,
+            average_probability_of_correct=average_probability_of_correct,
+            totals_by_label=totals_by_label,
+        )
 
 class ImageSequenceTransformerTrainer(ModelTrainerBase):
     def __init__(
             self,
             model: ModelBase,
-            parameters: TrainerParameters,
+            config: TrainingConfig,
+            overrides: Optional[TrainerOverrides] = None,
             continuation: Optional[TrainingState] = None,
         ):
-        super().__init__(model=model, parameters=parameters, continuation=continuation)
+        super().__init__(model=model, config=config, overrides=overrides, continuation=continuation)
 
         print("Preparing datasets...")
 
@@ -193,7 +203,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         #     canvas_size=canvas_size,
         #     digit_size=28,
         # )
-        #Get Bes's Combine dataset
+
         train_composite_dataset = BesCombine(train=True)
         test_composite_dataset = BesCombine(train=False)
 
@@ -201,7 +211,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         pin_memory = device == 'cuda'
         self.train_loader = torch.utils.data.DataLoader(
             train_composite_dataset,
-            batch_size=model.training_parameters.batch_size,
+            batch_size=self.config.batch_size,
             shuffle=True,
             num_workers=2,
             collate_fn=self.collate_fn,
@@ -209,7 +219,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         )
         self.test_loader = torch.utils.data.DataLoader(
             test_composite_dataset,
-            batch_size=model.training_parameters.batch_size,
+            batch_size=self.config.batch_size,
             shuffle=True,
             num_workers=2,
             collate_fn=self.collate_fn,
@@ -228,7 +238,7 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
     def get_train_data_loader(self):
         return self.train_loader
 
-    def process_batch(self, raw_batch):
+    def process_batch(self, raw_batch) -> BatchResults:
         images, input_sequences, expected_sequences = raw_batch
 
         device = self.model.get_device()
@@ -239,17 +249,21 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         criterion = nn.CrossEntropyLoss(ignore_index=-1)
         logits: torch.Tensor = self.model(images, input_sequences)   # Shape: (BatchSize, SequenceLength, VocabularySize=11) => Probability Source
 
-        # CrossEntropyLoss apparently needs a shape like (BatchSize, SequenceLength, ...)
+        # CrossEntropyLoss needs:
+        # - Logits shaped like   (BatchSize, VocabularySize, ...Other Dimensions...)
+        # - Expected shaped like (BatchSize, ...Other Dimensions...)
         loss = criterion(logits.transpose(-1, -2), expected_sequences)
 
-        return {
-            "total_loss": loss,
-            "logits": logits,
-            "num_samples": len(images),
-            "expected_sequences": expected_sequences,
-        }
+        return BatchResults(
+            total_loss=loss,
+            num_samples=len(images),
+            intermediates={
+                "logits": logits,
+                "expected_sequences": expected_sequences,
+            },
+        )
     
-    def _validate(self):
+    def _validate(self) -> ValidationResults:
         total_loss = 0.0
 
         totals_by_label = [0] * 11
@@ -264,9 +278,10 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
 
         for raw_batch in self.test_loader:
             batch_results = self.process_batch(raw_batch)
-            logits = batch_results["logits"] # Shape: (BatchSize, SequenceLength, VocabularySize=11) 
-            expected_sequences = batch_results["expected_sequences"]
-            loss = batch_results["total_loss"]
+
+            logits = batch_results.intermediates["logits"]
+            expected_sequences = batch_results.intermediates["expected_sequences"]
+            loss = batch_results.total_loss
             probabilities = F.softmax(logits, dim=1)
 
             for instance_logits, instance_expected, instance_probabilities in zip(logits, expected_sequences, probabilities):
@@ -296,17 +311,17 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         proportion_subimages_correct = total_subimages_correct / total_subimages if total_subimages > 0 else 0.0
         average_probability_of_subimages_correct = total_probability_of_subimage_correct / total_subimages if total_subimages > 0 else 0.0
         average_loss_per_subimage = total_loss / total_subimages if total_subimages > 0 else 0.0
-        average_loss = total_loss / total_composites if total_composites > 0 else 0.0
+
         proportion_composites_correct = correct_composites / total_composites if total_composites > 0 else 0.0
 
-        print(f"Validation complete: {total_composites} composites, containing {total_subimages} subimages, {total_subimages_correct} correct, {average_loss:.3g} average validation loss ")
+        print(f"Validation complete: {total_composites} composites, containing {total_subimages} subimages, {total_subimages_correct} correct, {average_loss_per_subimage:.3g} average loss per subimage")
         print(f"* Accuracy: {proportion_subimages_correct:.2%} subimages correct")
         print(f"* Accuracy: {proportion_composites_correct:.2%} composites fully correct")
         print(f"* Average loss for each subimage: {average_loss_per_subimage}")
         print(f"* Average confidence in each subimage: {average_probability_of_subimages_correct:.2%}")
         print()
         print("Proportion subimages correct by actual label:")
-        for i in range(11):
+        for i in range(10):
             label_prop_correct = correct_by_label[i] / totals_by_label[i] if totals_by_label[i] > 0 else 0
             if i == 10:
                 index_label = "END"
@@ -315,13 +330,14 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
             print(f"* {index_label}: {label_prop_correct:.2%} ({correct_by_label[i]} of {totals_by_label[i]})")
         print()
 
-        return {
-            "average_loss": average_loss_per_subimage,
-            "proportion_subimages_correct": proportion_subimages_correct,
-            "proportion_composites_correct": proportion_composites_correct,
-            "average_probability_of_subimages_correct": average_probability_of_subimages_correct,
-            "totals_by_label": totals_by_label,
-        }
+        return ValidationResults(
+            epoch=self.epoch,
+            validation_loss=average_loss_per_subimage,
+            proportion_subimages_correct=proportion_subimages_correct,
+            proportion_composites_correct=proportion_composites_correct,
+            average_probability_of_subimages_correct=average_probability_of_subimages_correct,
+            totals_by_label=totals_by_label,
+        )
 
 def composite_image_generator(
         device: str,

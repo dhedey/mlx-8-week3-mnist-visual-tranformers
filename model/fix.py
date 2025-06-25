@@ -15,7 +15,7 @@ import math
 import os
 from typing import Optional
 import time
-from .common import TrainingState, TrainerParameters, ModelTrainerBase, ModelBase, PersistableModel
+from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase
 
 for model_name in [
     "encoder-only",
@@ -29,7 +29,7 @@ for model_name in [
     "encoder-only-positional-dropout",
     "encoder-only-positional-dropout-best",
 ]:
-    path = PersistableModel._model_path(model_name)
+    path = ModelBase._model_path(model_name)
     data = torch.load(path)
     # if data["model"]["creation_state"]["hyper_parameters"]["heads_per_layer"] > 1:
     #     print(f"Fixing {model_name} attention heads from {data['model']['creation_state']["hyper_parameters"]['heads_per_layer']} to 1")

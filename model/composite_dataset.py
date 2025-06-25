@@ -4,13 +4,16 @@ import torch
 import torchvision
 import random
 import einops
+import os
 
 class BesCombine(Dataset):
   def __init__(self, train=True):
     super().__init__()
     self.tf = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.1307,), (0.3081,))])
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
-    self.ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
+
+    data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+    self.ds = torchvision.datasets.MNIST(data_folder, train=train, download=True)
     self.ti = torchvision.transforms.ToPILImage()
     self.ln = len(self.ds)
 

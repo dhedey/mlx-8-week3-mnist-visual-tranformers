@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
@@ -7,498 +6,161 @@ import os
 import statistics
 import transformers
 import random
+import einops
 import pandas as pd
 import math
 from typing import Optional, Self
-from .common import ModelBase, PersistableData, TrainingHyperparameters
-from .trainer import EncoderOnlyModelTrainer, ImageSequenceTransformerTrainer, TrainerParameters
+from .common import ModelBase, ModuleConfig, TrainingConfig, Field
+from .modules.encoder import EncoderBlockConfig, ImageEncoder, ImageEncoderConfig
+from .modules.decoder import DecoderBlockConfig, DecoderBlock
+from .trainer import ModelTrainerBase, EncoderOnlyModelTrainer, ImageSequenceTransformerTrainer, TrainerOverrides
 
-@dataclass
-class TransformerEncoderModelHyperparameters(PersistableData):
-    encoder_blocks: int
-    embedding_size: int
-    kq_dimension: int
-    v_dimension: int
-    mlp_hidden_dimension: int
-    heads_per_layer: int = field(default=1, metadata={"description": "Number of attention heads per encoder block."})
-    add_positional_bias: bool = field(default=False, metadata={"description": "Whether to add a positional bias to the block embeddings."})
-    mlp_dropout: float = field(default=0.0, metadata={"description": "Dropout rate for the MLP layers."})
+class SingleDigitModelConfig(ModuleConfig):
+    encoder: ImageEncoderConfig
 
-class TransformerEncoderModel(ModelBase):
-    def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: TransformerEncoderModelHyperparameters):
-        super(TransformerEncoderModel, self).__init__(
-            model_name=model_name,
-            training_parameters=training_parameters,
-            model_parameters=model_parameters,
-        )
-        self.image_block_embedding = nn.Linear(
-            in_features=7 * 7, # Each block is 7x7 pixels
-            out_features=model_parameters.embedding_size,
-        )
-        self.encoder_blocks = nn.ModuleList([
-            EncoderBlock(
-                kq_dimension=model_parameters.kq_dimension,
-                v_dimension=model_parameters.v_dimension,
-                embedding_dimension=model_parameters.embedding_size,
-                mlp_hidden_dimension=model_parameters.mlp_hidden_dimension,
-                mlp_dropout=model_parameters.mlp_dropout,
-                attention_heads=model_parameters.heads_per_layer,
-            )
-            for _ in range(model_parameters.encoder_blocks)
-        ])
-        self.prediction_layer = nn.Linear(model_parameters.embedding_size, 10)
-        # Allow the model to learn a positional bias for each of the blocks in the image
-        self.positional_bias = nn.Parameter(
-            torch.zeros([4 * 4, model_parameters.embedding_size], dtype=torch.float32),
-            requires_grad=model_parameters.add_positional_bias,
-        )
-        
-    @classmethod
-    def hyper_parameters_class(cls) -> type[PersistableData]:
-        return TransformerEncoderModelHyperparameters
+class SingleDigitModel(ModelBase):
+    def __init__(self, model_name: str, config: SingleDigitModelConfig):
+        super().__init__(model_name=model_name, config=config)
+        self.image_encoder = ImageEncoder(config.encoder)
+        self.prediction_layer = nn.Linear(config.encoder.embedding_dimension, 10)  # 10 digits (0-9)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Assumes it receives a (Batch(es), ChannelCount=1, Height=28, Width=28) tensor of images."""
-        #Move to device if not already there
-        x = x.to(self.get_device())
-        
-        # Unfold into 7x7 blocks
-        x = torch.nn.Unfold(       # Shape: (Batch(es), Channel=1*(7*7), NumBlocks = 4*4)
-            kernel_size=(7, 7),
-            stride=(7, 7),
-            padding=0,
-        )(x)
-        x = x.transpose(-1, -2)    # Shape: (Batch(es), NumBlocks = 16, Channel=1*(7*7))
 
-        residual_stream = self.image_block_embedding(x) # Shape: (Batch(es), NumBlocks = 16, Embedding Dimension)
-        residual_stream = residual_stream + self.positional_bias
-
-        for encoder_block in self.encoder_blocks:
-            residual_stream = encoder_block(residual_stream)
-
-        averaged_embedding = residual_stream.mean(dim=-2)        # Average over the blocks, Shape: (Batch(es), Embedding Dimension)
+        residual_stream=self.image_encoder(x)
+        averaged_embedding = residual_stream.mean(dim=-2)   # Average over the blocks, Shape: (Batch(es), Embedding Dimension)
         logits = self.prediction_layer(averaged_embedding)  # Shape: (Batch(es), 10)
 
         return logits
 
-
-@dataclass
-class ImageSequenceTransformerHyperparameters(PersistableData):
-    image_size: int
-    image_block_size: int
+class DigitSequenceModelConfig(ModuleConfig):
+    encoder: ImageEncoderConfig
     max_sequence_length: int
+    decoder_block_count: int
+    decoder_block: DecoderBlockConfig
 
-    encoder_blocks: int
-    encoder_embedding_size: int
-    encoder_kq_dimension: int
-    encoder_v_dimension: int
-    encoder_mlp_hidden_dimension: int
-    encoder_heads_per_layer: int
-    
-    cross_kq_dimension: int
-    cross_v_dimension: int
-    cross_heads_per_layer: int
+class DigitSequenceModel(ModelBase):
+    def __init__(self, model_name: str, config: DigitSequenceModelConfig):
+        super().__init__(model_name=model_name, config=config)
 
-    decoder_blocks: int
-    decoder_embedding_size: int
-    decoder_kq_dimension: int
-    decoder_v_dimension: int
-    decoder_mlp_hidden_dimension: int
-    decoder_heads_per_layer: int
+        if config.decoder_block.encoder_embedding_dimension != config.encoder.embedding_dimension:
+            raise ValueError("Config inconsistency: The encoder embedding dimension in the encoder and decoder disagree")
 
-    mlp_dropout: float
+        self.image_encoder = ImageEncoder(config.encoder)
 
+        decoder_embedding_dimension = config.decoder_block.decoder_embedding_dimension
 
-class ImageSequenceTransformer(ModelBase):
-    def __init__(self, model_name: str, training_parameters: TrainingHyperparameters, model_parameters: ImageSequenceTransformerHyperparameters):
-        super().__init__(
-            model_name=model_name,
-            training_parameters=training_parameters,
-            model_parameters=model_parameters,
-        )
-        self.image_block_size = model_parameters.image_block_size
-        self.image_block_embedding = nn.Linear(
-            in_features= model_parameters.image_block_size * model_parameters.image_block_size,
-            out_features=model_parameters.encoder_embedding_size,
-        )
-        self.image_positional_bias = nn.Parameter(
-            torch.zeros([(model_parameters.image_size // model_parameters.image_block_size) ** 2, 
-                         model_parameters.encoder_embedding_size], dtype=torch.float32),
-        ) #Shape: (encoder_sequence_length, encoder_embedding_size)
-
-        self.encoder_blocks = nn.ModuleList([
-            EncoderBlock(
-                kq_dimension=model_parameters.encoder_kq_dimension,
-                v_dimension=model_parameters.encoder_v_dimension,
-                embedding_dimension=model_parameters.encoder_embedding_size,
-                mlp_dropout=model_parameters.mlp_dropout,
-                attention_heads=model_parameters.encoder_heads_per_layer,
-            )
-            for _ in range(model_parameters.encoder_blocks)
-        ])
-
-        self.sequence_positional_bias = nn.Parameter(
-            torch.zeros([model_parameters.max_sequence_length, model_parameters.decoder_embedding_size], dtype=torch.float32),
-        )
-
-        self.decoder_blocks = nn.ModuleList([
-            DecoderBlock(
-                cross_kq_dimension=model_parameters.cross_kq_dimension,
-                cross_v_dimension=model_parameters.cross_v_dimension,
-                cross_attention_heads=model_parameters.cross_heads_per_layer,
-                encoder_embedding_dimension=model_parameters.encoder_embedding_size,
-                decoder_embedding_dimension=model_parameters.decoder_embedding_size,
-                decoder_kq_dimension=model_parameters.decoder_kq_dimension,
-                decoder_v_dimension=model_parameters.decoder_v_dimension,
-                decoder_heads_per_layer=model_parameters.decoder_heads_per_layer,
-                decoder_mlp_hidden_dimension=model_parameters.decoder_mlp_hidden_dimension,
-                mlp_dropout=model_parameters.mlp_dropout,
-            )
-            for _ in range(model_parameters.decoder_blocks)
-        ])
         # 12 embedding tokens: 10 digits, 1 padding token, 1 start token
-        self.decoder_embedding = nn.Embedding(num_embeddings=12, embedding_dim=model_parameters.decoder_embedding_size, padding_idx= 0) 
-        self.decoder_prediction_layer = nn.Linear(model_parameters.decoder_embedding_size, 11)
+        self.digit_sequence_embedding = nn.Embedding(
+            num_embeddings=12,
+            embedding_dim=decoder_embedding_dimension,
+            padding_idx=0,
+        )
+        self.digit_sequence_positional_bias = nn.Parameter(
+            torch.zeros([config.max_sequence_length, decoder_embedding_dimension], dtype=torch.float32),
+        )
+        self.decoder_blocks = nn.ModuleList([
+            DecoderBlock(config.decoder_block) for _ in range(config.decoder_block_count)
+        ])
+
+        self.decoder_prediction_layer = nn.Linear(decoder_embedding_dimension, 11)
 
     def forward(self, image, sequence):
+        # image    => Shape: (batch_size, image_width, image_height)
+        # sequence => Shape: (batch_size, decoder_sequence_length)
 
-        # Move to device if not already there
-        image = image.to(self.get_device()) # Shape: (batch_size, 256, 256)
-        sequence = sequence.to(self.get_device())   # Shape: (batch_size, decoder_sequence_length)
-        
-        # Reshape the image to (batch_size, 1, 256, 256)
-        image = image.unsqueeze(-3) # Shape: (batch_size, 1, 256, 256)
+        if image.dim() == 3:
+            # We add a singleton channel dimension if it's missing, so the image encoder works
+            image = image.unsqueeze(1)
 
-        # Unfold the image into blocks
-        image = torch.nn.Unfold(
-            kernel_size=(self.image_block_size, self.image_block_size),
-            stride=(self.image_block_size, self.image_block_size),
-            padding=0,
-        )(image)
-        image = image.transpose(-1, -2)    # Shape: (batch_size, encoder_blocks, self.image_block_size ** 2)
-
-        image_residuals = self.image_block_embedding(image) #shape: (batch_size, encoder_blocks, encoder_embedding_size)
-        image_residuals = image_residuals + self.image_positional_bias
-        for encoder_block in self.encoder_blocks:
-            image_residuals = encoder_block(image_residuals)
+        encoded_image = self.image_encoder(image)
             
-        #Add 1 to the sequence to get around the padding token
-        sequence_residuals = self.decoder_embedding(sequence + 1)
-
-
-        sequence_residuals = sequence_residuals + self.sequence_positional_bias
+        # We add 1 to the sequence indices to account for the padding token we inserted at index 0
+        embedded_sequence = self.digit_sequence_embedding(sequence + 1)
+        residual_stream = embedded_sequence + self.digit_sequence_positional_bias
 
         for decoder_block in self.decoder_blocks:
-            sequence_residuals = decoder_block(image_residuals, sequence_residuals)
+            residual_stream = decoder_block(encoded_image, residual_stream)
 
-        logits = self.decoder_prediction_layer(sequence_residuals)
+        logits = self.decoder_prediction_layer(residual_stream)
+        
         return logits
 
 
-    @classmethod
-    def hyper_parameters_class(cls) -> type[PersistableData]:
-        return ImageSequenceTransformerHyperparameters
-
-
-class DecoderBlock(nn.Module):
-    def __init__(self, cross_kq_dimension: int, cross_v_dimension: int, cross_attention_heads: int, encoder_embedding_dimension: int,
-                 decoder_embedding_dimension: int, decoder_kq_dimension: int, decoder_v_dimension: int, decoder_heads_per_layer: int,
-                 decoder_mlp_hidden_dimension: int, mlp_dropout: float):
-        super().__init__()
-        self.cross_attention_heads = nn.ModuleList([
-            UnmaskedAttentionHead(
-                kq_dimension=cross_kq_dimension,
-                v_dimension=cross_v_dimension,
-                encoder_embedding_dimension=encoder_embedding_dimension,
-                decoder_embedding_dimension=decoder_embedding_dimension,
-            )
-            for _ in range(cross_attention_heads)
-        ])
-        self.ln_1 = nn.LayerNorm(decoder_embedding_dimension)
-        self.masked_self_attention = MaskedSelfAttention(
-            embedding_dimension=decoder_embedding_dimension,
-            kq_dimension=decoder_kq_dimension,
-            v_dimension=decoder_v_dimension,
-            num_heads=decoder_heads_per_layer,
-        )
-        self.ln_2 = nn.LayerNorm(decoder_embedding_dimension)
-        self.mlp = MultiLayerPerceptron(
-            embedding_dimension=decoder_embedding_dimension,
-            hidden_dimension=decoder_mlp_hidden_dimension,
-            dropout=mlp_dropout,
-        )
-        self.ln_3 = nn.LayerNorm(decoder_embedding_dimension)
-        
-    def forward(self, encoder_embeddings, decoder_embeddings):
-        residual_stream = decoder_embeddings
-        for cross_attention_head in self.cross_attention_heads:
-            residual_stream = residual_stream + cross_attention_head(encoder_embeddings, decoder_embeddings)
-        residual_stream = self.ln_1(residual_stream)
-        residual_stream = residual_stream + self.masked_self_attention(residual_stream)
-        residual_stream = self.ln_2(residual_stream)
-        residual_stream = residual_stream + self.mlp(residual_stream)
-        residual_stream = self.ln_3(residual_stream)
-        return residual_stream
-
-class EncoderBlock(nn.Module):
-    def __init__(
-            self,
-            kq_dimension:int,
-            v_dimension: int,
-            embedding_dimension: int,
-            mlp_dropout: float,
-            attention_heads: int,
-            mlp_hidden_dimension: Optional[int] = None,
-        ):
-        super().__init__()
-        attention_heads = [
-            UnmaskedAttentionHead(
-                kq_dimension=kq_dimension,
-                v_dimension=v_dimension,
-                encoder_embedding_dimension=embedding_dimension,
-                decoder_embedding_dimension=embedding_dimension,
-            )
-            for _ in range(attention_heads)
-        ]
-        # Backwards compatibility
-        if len(attention_heads) == 1:
-            self.attention_head = attention_heads[0]
-            self.attention_heads = None
-        else:
-            self.attention_heads = nn.ModuleList(attention_heads)
-            self.attention_head = None
-        
-        self.layer_norm_1 = nn.LayerNorm(embedding_dimension)
-        if mlp_hidden_dimension is None:
-            mlp_hidden_dimension = embedding_dimension * 4 # Commonly used in transformers
-        self.mlp = MultiLayerPerceptron(
-            embedding_dimension=embedding_dimension,
-            hidden_dimension=embedding_dimension * 4,
-            dropout=mlp_dropout,
-        )
-        self.layer_norm_2 = nn.LayerNorm(embedding_dimension)
-
-    def forward(self, residual_stream):
-        # Shape: (Batch, Sequence Length, Embedding Dimension)
-        attention_heads = self.attention_heads if self.attention_heads is not None else [self.attention_head]
-        attention_head_results = [head(residual_stream, residual_stream) for head in attention_heads]
-        for result in attention_head_results:
-            residual_stream = residual_stream + result
-        residual_stream = self.layer_norm_1(residual_stream)
-        residual_stream = residual_stream + self.mlp(residual_stream)         
-        residual_stream = self.layer_norm_2(residual_stream)
-
-        return residual_stream
-    
-class MultiLayerPerceptron(nn.Module):
-    def __init__(self, embedding_dimension: int, hidden_dimension: int, dropout: float):
-        super().__init__()
-        self.fc1 = nn.Linear(embedding_dimension, hidden_dimension)
-        self.fc2 = nn.Linear(hidden_dimension, embedding_dimension)
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, x):
-        # x has            Shape: (batch_size, sequence_length, embedding_dimension)
-        x = self.fc1(x)  # Shape: (batch_size, sequence_length, hidden_dimension)
-        x = F.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)  # Shape: (batch_size, sequence_length, embedding_dimension)
-        return x
-    
-class UnmaskedAttentionHead(nn.Module):
-    def __init__(self, kq_dimension, v_dimension, encoder_embedding_dimension, decoder_embedding_dimension):
-        super().__init__()
-        self.kq_dimension = kq_dimension
-        self.v_dimension = v_dimension
-        self.encoder_embedding_dimension = encoder_embedding_dimension
-        self.decoder_embedding_dimension = decoder_embedding_dimension
-
-        self.query_projection = nn.Linear(decoder_embedding_dimension, kq_dimension)
-        self.key_projection = nn.Linear(encoder_embedding_dimension, kq_dimension)
-        self.value_projection = nn.Linear(encoder_embedding_dimension, v_dimension)
-        
-        # NB - Unlike many transformer implementations, we have a per-head output projection for easy of understanding.
-        self.output_projection = nn.Linear(v_dimension, decoder_embedding_dimension)
-
-    def forward(self, encoder_embeddings, decoder_embeddings):
-        queries = self.query_projection(decoder_embeddings)  # Shape: (batch_size, decoder_sequence_length, kq_dimension)
-        keys = self.key_projection(encoder_embeddings)       # Shape: (batch_size, encoder_sequence_length, kq_dimension)
-        values = self.value_projection(encoder_embeddings)   # Shape: (batch_size, encoder_sequence_length, v_dimension)
-
-        attention_scores = queries @ keys.transpose(-2, -1)  # Shape: (batch_size, decoder_sequence_length, encoder_sequence_length)
-
-        # Softmax over the encoder_sequence_length (keys), so each query row sums to 1
-        attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
-
-        output_values = attention @ values                   # Shape: (batch_size, decoder_sequence_length, v_dimension)
-        
-        residual = self.output_projection(output_values)     # Shape: (batch_size, decoder_sequence_length, decoder_embedding_dimension)
-        return residual
-
-class MaskedSelfAttention(nn.Module):
-    def __init__(self, embedding_dimension, kq_dimension, v_dimension, num_heads, mask_future_tokens=True):
-        super().__init__()
-        self.embedding_dimension = embedding_dimension
-        self.kq_dimension = kq_dimension
-        self.v_dimension = v_dimension
-        self.num_heads = num_heads
-        self.query_projection = nn.Linear(embedding_dimension, kq_dimension * num_heads)
-        self.key_projection = nn.Linear(embedding_dimension, kq_dimension * num_heads)
-        self.value_projection = nn.Linear(embedding_dimension, v_dimension * num_heads)
-        self.output_projection = nn.Linear(v_dimension * num_heads, embedding_dimension)
-        self.mask_future_tokens = mask_future_tokens
-        self._cached_mask = None
-        self._cached_mask_device = None
-        self._cached_mask_sequence_length = None
-
-
-    def forward(self, x): #x has shape (batch_size, sequence_length, embedding_dimension)
-        queries = self.query_projection(x).reshape(*x.shape[:-1], self.num_heads, self.kq_dimension).transpose(-2, -3)  # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
-        keys = self.key_projection(x).reshape(*x.shape[:-1], self.num_heads, self.kq_dimension).transpose(-2, -3)       # Shape: (batch_size, num_heads, sequence_length, kq_dimension)
-        values = self.value_projection(x).reshape(*x.shape[:-1], self.num_heads, self.v_dimension).transpose(-2, -3)   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
-
-        attention_scores = queries @ keys.transpose(-2, -1) # Shape: (batch_size, num_heads, sequence_length, sequence_length)
-        if self.mask_future_tokens:
-            if self._cached_mask is None or self._cached_mask_device != x.device or self._cached_mask_sequence_length != x.shape[-2]:
-            # Create a causal mask for the attention scores (ones indicate positions to mask    )
-                self._cached_mask = torch.triu(torch.ones((x.shape[-2], x.shape[-2]), dtype=torch.bool, device=x.device), diagonal=1)
-                self._cached_mask_sequence_length = x.shape[-2] 
-                self._cached_mask_device = x.device
-            attention_scores = attention_scores.masked_fill(self._cached_mask, float("-inf"))
-
-        attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
-        output_values = attention @ values                   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
-        output_values = output_values.transpose(-2, -3).reshape(*x.shape[:-1], self.num_heads * self.v_dimension) # Shape: (batch_size, sequence_length, num_heads * v_dimension)
-        residual = self.output_projection(output_values)     # Shape: (batch_size, sequence_length, embedding_dimension)
-        return residual
-
-class HiddenLayer(nn.Module):
-    def __init__(self, input_size, output_size, include_layer_norm, dropout):
-        super(HiddenLayer, self).__init__()
-        self.linear = nn.Linear(input_size, output_size)
-        self.dropout = nn.Dropout(dropout)
-        if include_layer_norm:
-            self.layer_norm = nn.LayerNorm(output_size)
-        else:
-            self.layer_norm = nn.Identity()
-
-    def forward(self, x):
-        x = self.linear(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-        x = self.layer_norm(x)
-        return x
-
 DEFAULT_MODEL_PARAMETERS = {
-    "decoder-v1": {
-        "training": TrainingHyperparameters(
+    "multi-digit-v1": {
+        "training": TrainingConfig(
             batch_size=512,
             epochs=20,
             learning_rate=0.0002,
             optimizer="adamw",
             warmup_epochs=5,
         ),
-        "model": ImageSequenceTransformerHyperparameters(
-            image_size=56,
-            image_block_size=7,
+        "model": DigitSequenceModelConfig(
             max_sequence_length=11,
-            encoder_blocks=5,
-            encoder_embedding_size=32,
-            encoder_kq_dimension=16,
-            encoder_v_dimension=16,
-            encoder_mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            encoder_heads_per_layer=2,
-            cross_kq_dimension=16,
-            cross_v_dimension=16,
-            cross_heads_per_layer=2,
-            decoder_blocks=2,
-            decoder_embedding_size=32,
-            decoder_kq_dimension=16,
-            decoder_v_dimension=16,
-            decoder_mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            decoder_heads_per_layer=2,
-            mlp_dropout=0.3,
+            encoder=ImageEncoderConfig(
+                image_width=56,
+                image_height=56,
+                image_patch_width=7,
+                image_patch_height=7,
+                embedding_dimension=32,
+                encoder_block_count=5,
+                encoder_block=EncoderBlockConfig(
+                    kq_dimension=16,
+                    v_dimension=16,
+                    embedding_dimension=32,
+                    num_heads=2,
+                    mlp_hidden_dimension=128,
+                    mlp_dropout=0.2,
+                ),
+            ),
+            decoder_block_count=2,
+            decoder_block=DecoderBlockConfig(
+                encoder_embedding_dimension=32,
+                decoder_embedding_dimension=32,
+
+                self_attention_kq_dimension=16,
+                self_attention_v_dimension=16,
+                self_attention_heads=2,
+
+                cross_attention_kq_dimension=16,
+                cross_attention_v_dimension=16,
+                cross_attention_heads=2,
+
+                mlp_hidden_dimension=128,
+                mlp_dropout=0.2,
+            ),
         ),
-        "model_class": ImageSequenceTransformer,
+        "model_class": DigitSequenceModel,
         "model_trainer": ImageSequenceTransformerTrainer,
     },
-    "encoder-only-bigger": {
-        "training": TrainingHyperparameters(
+    "single-digit-v1": {
+        "training": TrainingConfig(
             batch_size=256,
             epochs=50,
-            learning_rate=0.0005,
+            learning_rate=0.0002,
             optimizer="adamw",
             warmup_epochs=5,
         ),
-        "model": TransformerEncoderModelHyperparameters(
-            encoder_blocks=5,
-            embedding_size=64,
-            kq_dimension=16,
-            v_dimension=16,
-            mlp_hidden_dimension=256,
-            mlp_dropout=0.3,
-            add_positional_bias=True,
-            heads_per_layer=2,
+        "model": SingleDigitModelConfig(
+            encoder=ImageEncoderConfig(
+                image_width=28,
+                image_height=28,
+                image_patch_width=7,
+                image_patch_height=7,
+                embedding_dimension=32,
+                encoder_block_count=5,
+                encoder_block=EncoderBlockConfig(
+                    kq_dimension=16,
+                    v_dimension=16,
+                    embedding_dimension=32,
+                    num_heads=2,
+                    mlp_hidden_dimension=128,
+                    mlp_dropout=0.2,
+                ),
+            )
         ),
-        "model_class": TransformerEncoderModel,
-        "model_trainer": EncoderOnlyModelTrainer,
-    },
-    "encoder-only-big": {
-        "training": TrainingHyperparameters(
-            batch_size=256,
-            epochs=50,
-            learning_rate=0.002,
-            optimizer="adamw",
-            warmup_epochs=5,
-        ),
-        "model": TransformerEncoderModelHyperparameters(
-            encoder_blocks=5,
-            embedding_size=32,
-            kq_dimension=16,
-            v_dimension=16,
-            mlp_hidden_dimension=128,
-            mlp_dropout=0.3,
-            add_positional_bias=True,
-            heads_per_layer=1,
-        ),
-        "model_class": TransformerEncoderModel,
-        "model_trainer": EncoderOnlyModelTrainer,
-    },
-    "encoder-only-positional-dropout": {
-        "training": TrainingHyperparameters(
-            batch_size=256,
-            epochs=50,
-            learning_rate=0.002,
-            optimizer="adamw",
-            warmup_epochs=5,
-        ),
-        "model": TransformerEncoderModelHyperparameters(
-            encoder_blocks=3,
-            embedding_size=32,
-            kq_dimension=16,
-            v_dimension=16,
-            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            mlp_dropout=0.3,
-            add_positional_bias=True,
-        ),
-        "model_class": TransformerEncoderModel,
-        "model_trainer": EncoderOnlyModelTrainer,
-    },
-    "encoder-only-positional": {
-        "training": TrainingHyperparameters(
-            batch_size=128,
-            epochs=20,
-            learning_rate=0.002,
-        ),
-        "model": TransformerEncoderModelHyperparameters(
-            encoder_blocks=3,
-            embedding_size=32,
-            kq_dimension=16,
-            v_dimension=16,
-            mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            add_positional_bias=True,
-        ),
-        "model_class": TransformerEncoderModel,
+        "model_class": SingleDigitModel,
         "model_trainer": EncoderOnlyModelTrainer,
     },
 }
@@ -508,12 +170,9 @@ if __name__ == "__main__":
    for model_name, parameters in DEFAULT_MODEL_PARAMETERS.items():
         best_version = f"{model_name}-best"
         print(f"Loading Model: {best_version}")
-        model = ModelBase.load_for_evaluation(best_version)
-        print(f"Validation Metrics: {model.validation_metrics}")
+
+        trainer = ModelTrainerBase.load_with_model(best_version)
+        print(f"Latest validation metrics: {trainer.latest_validation_results}")
    
-        # Re-validate the model to check the loading has worked correctly
-        trainer = parameters["model_trainer"](
-            model=model,
-            parameters=TrainerParameters()
-        )
-        trainer.validate()
+        print(f"Running model to check it's working...")
+        trainer.run_validation()
