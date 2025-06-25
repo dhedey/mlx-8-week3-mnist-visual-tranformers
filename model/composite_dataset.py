@@ -1,6 +1,33 @@
 from .create_composite import get_composite_image_and_sequence, load_mnist_dataset
 from torch.utils.data import Dataset
 import torch
+import torchvision
+import random
+import einops
+
+class BesCombine(Dataset):
+  def __init__(self, train=True):
+    super().__init__()
+    self.tf = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.1307,), (0.3081,))])
+    self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
+    self.ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
+    self.ti = torchvision.transforms.ToPILImage()
+    self.ln = len(self.ds)
+
+  def __len__(self):
+    return len(self.ds)
+
+  def __getitem__(self, idx):
+    idx = random.sample(range(self.ln), 4)
+    store = [self.ds[i][0] for i in idx]
+    label = [self.ds[i][1] for i in idx]
+    tnsrs = [self.tf(img) for img in store]
+    stack = torch.stack(tnsrs, dim=0).squeeze()
+    combo = einops.rearrange(stack, '(h w) ph pw -> (h ph) (w pw)', h=2, w=2, ph=28, pw=28)
+    #patch = einops.rearrange(combo, '(h ph) (w pw) -> (h w) ph pw', ph=14, pw=14)
+    #label = [10] + label + [11]
+    return combo, torch.tensor(label)
+
 
 class CompositeDataset(Dataset):
     def __init__(self, dataset = None, length = 100000, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
