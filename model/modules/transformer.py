@@ -100,9 +100,7 @@ class MaskedSelfAttention(nn.Module):
         self.output_projection = nn.Linear(params.v_dimension * params.num_heads, params.embedding_dimension)
         self.mask_future_tokens = mask_future_tokens
 
-        self._cached_mask = None
-        self._cached_mask_device = None
-        self._cached_mask_sequence_length = None
+        self.register_buffer('_cached_mask', torch.empty(0), persistent=False)
 
 
     def forward(self, x): #x has shape (batch_size, sequence_length, embedding_dimension)
@@ -112,12 +110,13 @@ class MaskedSelfAttention(nn.Module):
 
         attention_scores = queries @ keys.transpose(-2, -1) # Shape: (batch_size, num_heads, sequence_length, sequence_length)
         if self.mask_future_tokens:
-            if self._cached_mask is None or self._cached_mask_device != x.device or self._cached_mask_sequence_length != x.shape[-2]:
-            # Create a causal mask for the attention scores (ones indicate positions to mask    )
-                self._cached_mask = torch.triu(torch.ones((x.shape[-2], x.shape[-2]), dtype=torch.bool, device=x.device), diagonal=1)
-                self._cached_mask_sequence_length = x.shape[-2] 
-                self._cached_mask_device = x.device
-            attention_scores = attention_scores.masked_fill(self._cached_mask, float("-inf"))
+            seq_len = x.shape[-2]
+            if self._cached_mask.shape[-1] < seq_len:
+                mask = torch.triu(torch.ones((seq_len, seq_len), dtype=torch.bool, device=x.device), diagonal=1)
+                self._cached_mask = mask
+            
+            # Since self._cached_mask is on the same device as the model, we can use it directly
+            attention_scores = attention_scores.masked_fill(self._cached_mask[:seq_len, :seq_len], float("-inf"))
 
         attention = F.softmax(attention_scores / math.sqrt(self.kq_dimension), dim=-1)
         output_values = attention @ values                   # Shape: (batch_size, num_heads, sequence_length, v_dimension)
