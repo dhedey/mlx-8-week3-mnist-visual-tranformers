@@ -8,25 +8,34 @@ import einops
 class BesCombine(Dataset):
   def __init__(self, train=True):
     super().__init__()
-    self.tf = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.1307,), (0.3081,))])
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
-    self.ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
-    self.ti = torchvision.transforms.ToPILImage()
-    self.ln = len(self.ds)
+    ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
+    self.ln = len(ds)
+
+    # Pre-process all images and cache them in memory
+    all_images = ds.data.unsqueeze(1).float() / 255.0
+    normalizer = torchvision.transforms.Normalize((0.1307,), (0.3081,))
+    self.processed_images = normalizer(all_images)
+    self.all_labels = ds.targets
+    
+    # Create a deterministic map of indices, so __getitem__(i) is always the same
+    self.index_map = [random.sample(range(self.ln), 4) for _ in range(self.ln)]
 
   def __len__(self):
-    return len(self.ds)
+    return self.ln
 
   def __getitem__(self, idx):
-    idx = random.sample(range(self.ln), 4)
-    store = [self.ds[i][0] for i in idx]
-    label = [self.ds[i][1] for i in idx]
-    tnsrs = [self.tf(img) for img in store]
-    stack = torch.stack(tnsrs, dim=0).squeeze()
+    # Get the pre-determined list of 4 indices for this item
+    image_indices = self.index_map[idx]
+    
+    # Retrieve the pre-processed images and labels using fast tensor indexing
+    stack = self.processed_images[image_indices].squeeze(1) # shape: (4, 28, 28)
+    label = self.all_labels[image_indices]
+
     combo = einops.rearrange(stack, '(h w) ph pw -> (h ph) (w pw)', h=2, w=2, ph=28, pw=28)
     #patch = einops.rearrange(combo, '(h ph) (w pw) -> (h w) ph pw', ph=14, pw=14)
     #label = [10] + label + [11]
-    return combo, torch.tensor(label)
+    return combo, label
 
 
 class CompositeDataset(Dataset):

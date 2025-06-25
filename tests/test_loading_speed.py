@@ -1,4 +1,4 @@
-from model.composite_dataset import CompositeDataset, BesCombine, UltraFastBesCombine
+from model.composite_dataset import CompositeDataset, BesCombine
 from torch.utils.data import DataLoader
 from model.composite_dataset import sequence_collate_fn
 import time
@@ -39,25 +39,6 @@ if __name__ == '__main__':
     #     pass
     # end_time = time.time()
     # print(f"Time taken: {end_time - start_time} seconds to load {num_images} images with DataLoader with batch size {batch_size} and {num_workers} workers.")
-
-    #UltraFastBesCombine
-    start_time = time.time()
-    ultra_fast_combine_dataset = UltraFastBesCombine(train=True)
-    end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds to setup UltraFastBesCombine")
-    start_time = time.time()
-    for i in range(len(ultra_fast_combine_dataset)):
-        ultra_fast_combine_dataset[i]
-    end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds to load {len(ultra_fast_combine_dataset)} images")
-
-    #UltraFastBesCombine with DataLoader
-    ultra_fast_combine_dataloader =  DataLoader(ultra_fast_combine_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    start_time = time.time()
-    for batch in ultra_fast_combine_dataloader:
-        pass
-    end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds to load {len(ultra_fast_combine_dataset)} images with DataLoader with batch size {batch_size} and {num_workers} workers.")
 
     #Do the same thing with the Combine dataset
     combine_dataset = BesCombine(train=True)
