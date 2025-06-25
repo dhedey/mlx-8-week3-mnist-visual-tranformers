@@ -287,9 +287,11 @@ class ModelTrainerBase:
                         "epoch": self.epoch,
                     }
                     for key, value in self.latest_validation_results.to_dict().items():
-                        log_data[f"validation_{key}"] = value
+                        #note: Loss is already prefixed with "validation_"
+                        log_data[f"{key}"] = value
                     for key, value in self.latest_training_results.to_dict().items():
-                        log_data[f"epoch_{key}"] = value
+                        if key != "epoch":
+                            log_data[f"epoch_{key}"] = value
     
                     wandb.log(log_data)
                 if self.config.early_stopping:

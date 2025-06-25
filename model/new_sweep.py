@@ -12,7 +12,7 @@ import os
 
 from .models import DigitSequenceModel, DigitSequenceModelConfig, ImageEncoderConfig, EncoderBlockConfig, DecoderBlockConfig
 from .trainer import DigitSequenceModelTrainer
-from .common import select_device, TrainingConfig, TrainerOverrides
+from .common import select_device, TrainingConfig, TrainerOverrides, ModelBase
 
 PROJECT_NAME = "week3-mnist-transformers"
 
@@ -206,9 +206,8 @@ def train_sweep_run():
                 }
                 
                 # Get model save paths
-                from .common import PersistableModel
-                model_path = PersistableModel._model_path(model_name)
-                best_model_path = PersistableModel._model_path(f"{model_name}-best")
+                model_path = ModelBase._model_path(model_name)
+                best_model_path = ModelBase._model_path(f"{model_name}-best")
                 
                 # Upload final model
                 if os.path.exists(model_path):
