@@ -26,10 +26,10 @@ SWEEP_CONFIG = {
     },
     'parameters': {
         'encoder_blocks': {
-            'values': [1, 3, 5],
+            'values': [3, 5, 7],
         },
         'decoder_blocks': {
-            'values': [1, 2, 3],
+            'values': [1, 2, 3, 5],
         },
         'batch_size': {
             'values': [256, 512, 1024]
@@ -38,12 +38,12 @@ SWEEP_CONFIG = {
             'values': [32, 64, 128]
         },
         'learning_rate': {
-            'min': 0.0001,
+            'min': 0.00001,
             'max': 0.001,
             'distribution': 'log_uniform_values'
         },
         'num_heads': {
-            'values': [1, 2, 4, 8]
+            'values': [1, 2, 4]
         },
         'kq_size': {
             'values': [16, 32, 64]
@@ -52,10 +52,10 @@ SWEEP_CONFIG = {
             'values': [16, 32, 64]
         },
         'positional_embedding': {
-            'values': ["learned-bias"]
+            'value': "learned-bias"
         },
         'epochs': {
-            'values': [10]
+            'value': 20
         },
     }
 }
