@@ -311,10 +311,10 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         proportion_subimages_correct = total_subimages_correct / total_subimages if total_subimages > 0 else 0.0
         average_probability_of_subimages_correct = total_probability_of_subimage_correct / total_subimages if total_subimages > 0 else 0.0
         average_loss_per_subimage = total_loss / total_subimages if total_subimages > 0 else 0.0
-
+        average_loss = total_loss / total_composites if total_composites > 0 else 0.0
         proportion_composites_correct = correct_composites / total_composites if total_composites > 0 else 0.0
 
-        print(f"Validation complete: {total_composites} composites, containing {total_subimages} subimages, {total_subimages_correct} correct, {average_loss_per_subimage:.3g} average loss per subimage")
+        print(f"Validation complete: {total_composites} composites, containing {total_subimages} subimages, {total_subimages_correct} correct, {average_loss:.3g} average loss per composite")
         print(f"* Accuracy: {proportion_subimages_correct:.2%} subimages correct")
         print(f"* Accuracy: {proportion_composites_correct:.2%} composites fully correct")
         print(f"* Average loss for each subimage: {average_loss_per_subimage}")
@@ -332,7 +332,8 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
 
         return ValidationResults(
             epoch=self.epoch,
-            validation_loss=average_loss_per_subimage,
+            validation_loss=average_loss,
+            average_loss_per_subimage=average_loss_per_subimage,
             proportion_subimages_correct=proportion_subimages_correct,
             proportion_composites_correct=proportion_composites_correct,
             average_probability_of_subimages_correct=average_probability_of_subimages_correct,

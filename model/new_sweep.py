@@ -184,11 +184,11 @@ def train_sweep_run():
         
         # Log final metrics
         log_data = {
-            "final_train_average_loss": results['last_epoch']['average_loss'],
-            "total_epochs": results['total_epochs'],
+            "final_train_average_loss": results.last_epoch.average_loss,
+            "total_epochs": results.total_epochs,
         }
-        for key in results['validation']:
-            log_data[f"final_validation_{key}"] = results['validation'][key]
+        for key, value in results.last_validation.model_dump().items():
+            log_data[f"final_validation_{key}"] = value
         wandb.log(log_data)
         
         # Upload model artifacts if enabled
@@ -197,9 +197,9 @@ def train_sweep_run():
                 # Prepare metadata for the artifact
                 artifact_metadata = {
                     "config": dict(config),
-                    "final_validation_loss": results['validation']['average_loss'],
-                    "final_train_loss": results['last_epoch']['average_loss'],
-                    "total_epochs": results['total_epochs'],
+                    "final_validation_loss": results.last_validation.validation_loss,
+                    "final_train_loss": results.last_epoch.average_loss,
+                    "total_epochs": results.total_epochs,
                     "wandb_run_id": run_id,
                     "model_architecture": "ImageSequenceTransformer",
                 }
