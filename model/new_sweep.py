@@ -21,7 +21,7 @@ PROJECT_NAME = "week3-mnist-transformers"
 SWEEP_CONFIG = {
     'method': 'bayes',  # Can be 'grid', 'random', or 'bayes'
     'metric': {
-        'name': 'final_validation_average_loss',
+        'name': 'final_validation_loss',
         'goal': 'minimize'
     },
     'parameters': {
