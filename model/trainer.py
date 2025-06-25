@@ -16,7 +16,7 @@ import os
 from typing import Optional
 import time
 from .common import TrainingState, TrainerParameters, ModelTrainerBase, ModelBase
-from .composite_dataset import CompositeDataset, sequence_collate_fn
+from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
 
 class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
@@ -177,22 +177,25 @@ class ImageSequenceTransformerTrainer(ModelTrainerBase):
         self.max_sequence_length = max_digits + 1 # +1 for start and stop tokens
         canvas_size = (256, 256)
 
-        train_composite_dataset = CompositeDataset(
-            dataset=train_sub_image_set,
-            length=100000,
-            min_digits=min_digits,
-            max_digits=max_digits,
-            canvas_size=canvas_size,
-            digit_size=28,
-        )
-        test_composite_dataset = CompositeDataset(
-            dataset=test_sub_image_set,
-            length=10000,
-            min_digits=min_digits,
-            max_digits=max_digits,
-            canvas_size=canvas_size,
-            digit_size=28,
-        )
+        # train_composite_dataset = CompositeDataset(
+        #     dataset=train_sub_image_set,
+        #     length=100000,
+        #     min_digits=min_digits,
+        #     max_digits=max_digits,
+        #     canvas_size=canvas_size,
+        #     digit_size=28,
+        # )
+        # test_composite_dataset = CompositeDataset(
+        #     dataset=test_sub_image_set,
+        #     length=10000,
+        #     min_digits=min_digits,
+        #     max_digits=max_digits,
+        #     canvas_size=canvas_size,
+        #     digit_size=28,
+        # )
+        #Get Bes's Combine dataset
+        train_composite_dataset = BesCombine(train=True)
+        test_composite_dataset = BesCombine(train=False)
 
         device = self.model.get_device()
         pin_memory = device == 'cuda'

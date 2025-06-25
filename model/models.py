@@ -392,26 +392,26 @@ class HiddenLayer(nn.Module):
 DEFAULT_MODEL_PARAMETERS = {
     "decoder-v1": {
         "training": TrainingHyperparameters(
-            batch_size=128,
+            batch_size=512,
             epochs=20,
             learning_rate=0.0002,
             optimizer="adamw",
             warmup_epochs=5,
         ),
         "model": ImageSequenceTransformerHyperparameters(
-            image_size=256,
-            image_block_size=32,
+            image_size=56,
+            image_block_size=7,
             max_sequence_length=11,
-            encoder_blocks=3,
+            encoder_blocks=5,
             encoder_embedding_size=32,
             encoder_kq_dimension=16,
             encoder_v_dimension=16,
             encoder_mlp_hidden_dimension=128, # 4 * embedding_size is typical in transformers
-            encoder_heads_per_layer=1,
+            encoder_heads_per_layer=2,
             cross_kq_dimension=16,
             cross_v_dimension=16,
-            cross_heads_per_layer=1,
-            decoder_blocks=5,
+            cross_heads_per_layer=2,
+            decoder_blocks=2,
             decoder_embedding_size=32,
             decoder_kq_dimension=16,
             decoder_v_dimension=16,
