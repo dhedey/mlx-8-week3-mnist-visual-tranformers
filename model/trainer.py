@@ -321,7 +321,7 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         print(f"* Average confidence in each subimage: {average_probability_of_subimages_correct:.2%}")
         print()
         print("Proportion subimages correct by actual label:")
-        for i in range(10):
+        for i in range(11):
             label_prop_correct = correct_by_label[i] / totals_by_label[i] if totals_by_label[i] > 0 else 0
             if i == 10:
                 index_label = "END"
