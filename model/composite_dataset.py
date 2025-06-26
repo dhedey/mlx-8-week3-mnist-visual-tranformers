@@ -10,6 +10,7 @@ from tqdm import tqdm
 class BesCombine(Dataset):
   def __init__(self, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
     super().__init__()
+    #guarantee that h_patches and w_patches are integ
     self.h_patches = h_patches
     self.w_patches = w_patches
     self.p_skip = p_skip
@@ -18,7 +19,7 @@ class BesCombine(Dataset):
     gen = np.random.default_rng(42)
     data_folder = os.path.join(os.path.dirname(__file__), "datasets")
     ds = torchvision.datasets.MNIST(root=data_folder, train=train, download=True)
-    self.ln = len(ds) if length is None else length
+    self.ln = len(ds) if length is None else int(length)
 
     # Pre-process all images and cache them in memory; first image is 0
     all_images = torch.cat((torch.zeros(1, 1, 28, 28), ds.data.unsqueeze(1).float() / 255.0))
