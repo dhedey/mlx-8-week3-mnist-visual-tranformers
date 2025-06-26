@@ -26,9 +26,8 @@ class BesCombine(Dataset):
     self.processed_images = normalizer(all_images)
     self.all_labels = torch.cat((torch.zeros(1), ds.targets)).to(torch.long)
     # Create a deterministic map of indices, so __getitem__(i) is always the same 
-    self.index_map = [
-       np.random.choice(range(1, len(ds) + 1), self.h_patches * self.w_patches, replace=False) for _ in range(self.ln)]
-    self.skip_map = np.random.binomial(1, p_skip, size=(self.ln, self.h_patches * self.w_patches))
+    self.index_map = np.random.choice(range(1, len(ds) + 1), size = (self.ln, self.h_patches * self.w_patches), replace=True)
+    self.skip_map = np.random.binomial(1, self.p_skip, size=(self.ln, self.h_patches * self.w_patches))
 
   def __len__(self):
     return self.ln
