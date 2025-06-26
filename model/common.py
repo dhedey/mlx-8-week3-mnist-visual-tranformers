@@ -227,8 +227,8 @@ class ModelBase(nn.Module):
         return model, training_state, training_config
 
     @classmethod
-    def load_for_evaluation(cls, model_name: str, device: Optional[str] = None) -> Self:
-        model, _, _ = cls.load(model_name=model_name, device=device)
+    def load_for_evaluation(cls, model_name: Optional[str] = None, model_path: Optional[str] = None, device: Optional[str] = None) -> Self:
+        model, _, _ = cls.load(model_name=model_name, model_path=model_path, device=device)
         model.eval()
         return model
 
