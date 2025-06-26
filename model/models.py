@@ -68,6 +68,9 @@ class DigitSequenceModel(ModelBase):
     def forward(self, image, sequence):
         # image    => Shape: (batch_size, image_width, image_height)
         # sequence => Shape: (batch_size, decoder_sequence_length)
+        #add batch dimension if it's missing
+        if image.dim() == 2:
+            image = image.unsqueeze(0)
 
         if image.dim() == 3:
             # We add a singleton channel dimension if it's missing, so the image encoder works
