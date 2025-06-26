@@ -558,10 +558,11 @@ class ModelTrainerBase:
         raise NotImplementedError("This class method should be implemented by subclasses")
     
     def save_model(self):
+        scheduler_state = self.scheduler.state_dict() if self.scheduler is not None else None
         training_state = TrainingState(
             epoch=self.epoch,
             optimizer_state=self.optimizer.state_dict(),
-            scheduler_state=self.scheduler.state_dict(),
+            scheduler_state=scheduler_state,
             model_trainer_class_name=self.__class__.__name__,
             total_training_time_seconds=self.total_training_time_seconds,
             latest_training_results=self.latest_training_results,
