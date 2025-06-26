@@ -25,8 +25,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--immediate-validation',
-        type=bool,
-        default=False,
+        action='store_true',
+        help='Run validation immediately after loading the model'
     )
     parser.add_argument(
         '--validate-after-epochs',
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     )
 
     try:
-        use_wandb = args.wandb or args.wandb_continue_run is not None
+        use_wandb = args.wandb or args.wandb_continue_run is not None or args.wandb_artifact_name is not None
 
         match args.model_source:
             case "default":
