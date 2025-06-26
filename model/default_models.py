@@ -21,7 +21,7 @@ WANDB_PROJECT_NAME = "week3-mnist-transformers"
 DEFAULT_MODEL_PARAMETERS = {
     "multi-digit-v2": {
         "training": TrainingConfig(
-            batch_size=512,
+            batch_size=256,
             epochs=20,
             learning_rate=0.0002,
             optimizer="adamw",

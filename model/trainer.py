@@ -206,8 +206,8 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         #     digit_size=28,
         # )
 
-        train_composite_dataset = BesCombine(train=True, h_patches=4, w_patches=4, length=10000, p_skip=0.3)
-        test_composite_dataset = BesCombine(train=False, h_patches=4, w_patches=4, length=2000, p_skip=0.3)
+        train_composite_dataset = BesCombine(train=True, h_patches=4, w_patches=4, p_skip=0.3)
+        test_composite_dataset = BesCombine(train=False, h_patches=4, w_patches=4, p_skip=0.3)
 
         device = self.model.get_device()
         pin_memory = device == 'cuda'
