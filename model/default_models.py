@@ -14,14 +14,14 @@ from .common import ModelBase, ModuleConfig, TrainingConfig, Field
 from .modules.encoder import EncoderBlockConfig, ImageEncoder, ImageEncoderConfig
 from .modules.decoder import DecoderBlockConfig, DecoderBlock
 from .models import DigitSequenceModel, DigitSequenceModelConfig, SingleDigitModel, SingleDigitModelConfig
-from .trainer import ModelTrainerBase, DigitSequenceModelTrainer, EncoderOnlyModelTrainer
+from .trainer import ModelTrainerBase, DigitSequenceModelTrainer, DigitSequenceModelTrainingConfig, SingleDigitModelTrainer, SingleDigitModelTrainingConfig
 
 WANDB_ENTITY = "david-edey-machine-learning-institute"
 WANDB_PROJECT_NAME = "week3-mnist-transformers"
 
 DEFAULT_MODEL_PARAMETERS = {
     "multi-digit-v2": {
-        "training": TrainingConfig(
+        "training": DigitSequenceModelTrainingConfig(
             batch_size=256,
             epochs=20,
             learning_rate=0.0002,
@@ -67,7 +67,7 @@ DEFAULT_MODEL_PARAMETERS = {
         "model_trainer": DigitSequenceModelTrainer,
     },
     "multi-digit-v1": {
-        "training": TrainingConfig(
+        "training": DigitSequenceModelTrainingConfig(
             batch_size=512,
             epochs=20,
             learning_rate=0.0002,
@@ -113,12 +113,7 @@ DEFAULT_MODEL_PARAMETERS = {
         "model_trainer": DigitSequenceModelTrainer,
     },
     "single-digit-v1": {
-        "training": TrainingConfig(
-            batch_size=256,
-            epochs=50,
-            learning_rate=0.001,
-            schedulers=["ReduceLROnPlateau"],
-        ),
+        "model_class": SingleDigitModel,
         "model": SingleDigitModelConfig(
             encoder=ImageEncoderConfig(
                 image_width=28,
@@ -137,8 +132,13 @@ DEFAULT_MODEL_PARAMETERS = {
                 ),
             )
         ),
-        "model_class": SingleDigitModel,
-        "model_trainer": EncoderOnlyModelTrainer,
+        "model_trainer": SingleDigitModelTrainer,
+        "training": SingleDigitModelTrainingConfig(
+            batch_size=256,
+            epochs=50,
+            learning_rate=0.001,
+            schedulers=["ReduceLROnPlateau"],
+        ),
     },
 }
 

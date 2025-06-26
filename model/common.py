@@ -180,13 +180,13 @@ class ModelBase(nn.Module):
         print(f"Model saved to {model_path}")
     
     @classmethod
-    def load(
+    def load_advanced(
         cls,
         model_name: Optional[str] = None,
         override_class_name = None,
         device: Optional[str] = None,
         model_path: Optional[str] = None,
-    ) -> tuple[Self, TrainingState, TrainingConfig]:
+    ) -> tuple[Self, TrainingState, dict]:
         if device is None:
             device = select_device()
 
@@ -215,8 +215,8 @@ class ModelBase(nn.Module):
 
         model_weights = loaded_model_data["model"]["weights"]
         model_config = model_class.config_class.from_dict(loaded_model_data["model"]["config"])
-        training_config = TrainingConfig.from_dict(loaded_model_data["training"]["config"])
         training_state = TrainingState.from_dict(loaded_model_data["training"]["state"])
+        training_config = loaded_model_data["training"]["config"]
 
         model = model_class(
             model_name=model_name,
@@ -228,7 +228,7 @@ class ModelBase(nn.Module):
 
     @classmethod
     def load_for_evaluation(cls, model_name: Optional[str] = None, model_path: Optional[str] = None, device: Optional[str] = None) -> Self:
-        model, _, _ = cls.load(model_name=model_name, model_path=model_path, device=device)
+        model, _, _ = cls.load_advanced(model_name=model_name, model_path=model_path, device=device)
         model.eval()
         return model
 
@@ -312,12 +312,27 @@ def create_optimizer(
 
 class ModelTrainerBase:
     registered_types: dict[str, type[Self]] = {}
+    config_class: type[TrainingConfig] = TrainingConfig
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls.__name__ in ModelTrainerBase.registered_types:
             raise ValueError(f"ModelTrainer {cls.__name__} is a duplicate classname. Use a new class name.")
         ModelTrainerBase.registered_types[cls.__name__] = cls
+
+        # Register the config class in cls.config_class
+        init_signature = inspect.signature(cls.__init__)
+        init_params = init_signature.parameters
+
+        if "config" not in init_params:
+            raise ValueError(f"ModelTrainer {cls.__name__} must have a 'config' parameter in its __init__ method.")
+
+        config_param_class = init_params["config"].annotation
+
+        if not issubclass(config_param_class, TrainingConfig):
+            raise ValueError(f"ModelTrainer {cls.__name__} has a 'config' parameter in its __init__ method called {config_param_class}, but this class does not derive from TrainingConfig.")
+
+        cls.config_class = config_param_class
 
     def __init__(
             self,
@@ -391,7 +406,7 @@ class ModelTrainerBase:
 
     @classmethod
     def load_with_model(cls, model_name: Optional[str] = None, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None, model_path: Optional[str] = None) -> Self:
-        model, state, config = ModelBase.load(model_name=model_name, device=device, model_path=model_path)
+        model, state, config = ModelBase.load_advanced(model_name=model_name, device=device, model_path=model_path)
         return cls.load(
             model=model,
             config=config,
@@ -400,7 +415,7 @@ class ModelTrainerBase:
         )
 
     @classmethod
-    def load(cls, model: ModelBase, config: TrainingConfig, state: TrainingState, overrides: Optional[TrainerOverrides] = None) -> Self:
+    def load(cls, model: ModelBase, config: dict, state: TrainingState, overrides: Optional[TrainerOverrides] = None) -> Self:
         trainer_class_name = state.model_trainer_class_name
 
         registered_types = ModelTrainerBase.registered_types
@@ -410,6 +425,8 @@ class ModelTrainerBase:
 
         if not issubclass(trainer_class, cls):
             raise ValueError(f"The trainer was attempted to be loaded with {cls.__name__}.load(..) with a trainer class of \"{trainer_class_name}\"), but {trainer_class_name} is not a subclass of {cls}.")
+        
+        config = trainer_class.config_class.from_dict(config)
 
         trainer = trainer_class(
             model=model,
@@ -595,7 +612,7 @@ class ModelTrainerBase:
 
         best_model_name = self.model.model_name + '-best'
         try:
-            _, best_training_state, _ = ModelBase.load(model_name=best_model_name, device="cpu")
+            _, best_training_state, _ = ModelBase.load_advanced(model_name=best_model_name, device="cpu")
             best_validation_loss = best_training_state.latest_validation_results.validation_loss
             best_validation_epoch = best_training_state.latest_validation_results.epoch
         except Exception:

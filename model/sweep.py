@@ -11,7 +11,7 @@ import wandb
 import os
 
 from .models import TrainingConfig, SingleDigitModel, SingleDigitModelConfig
-from .trainer import EncoderOnlyModelTrainer
+from .trainer import SingleDigitModelTrainer
 from .common import select_device
 
 from .default_models import WANDB_PROJECT_NAME
@@ -103,7 +103,7 @@ def train_sweep_run():
             model_parameters=model_parameters,
         )
 
-        trainer = EncoderOnlyModelTrainer(model=model.to(device))
+        trainer = SingleDigitModelTrainer(model=model.to(device))
         results = trainer.train()
         
         # Log final metrics

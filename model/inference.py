@@ -8,31 +8,7 @@ import numpy as np
 from pydantic import ValidationError
 from typing import Self
 
-# def legacy_load(model_name: str, model_path:str, device: str) -> tuple[Self, ModuleConfig]:
-#     loaded_model_data = torch.load(model_path, map_location=device)
-#     print(f"Model data (legacy) read from {model_path}")
-#     loaded_class_name = loaded_model_data["model"]["class_name"]
-
-#     registered_types = ModelBase.registered_types
-#     if loaded_class_name not in registered_types:
-#         raise ValueError(f"Model class {loaded_class_name} is not a known Model. Available classes: {list(registered_types.keys())}")
-#     model_class = registered_types[loaded_class_name]
-
-#     model_name_loaded = loaded_model_data["model"]["model_name"]
-#     model_weights = loaded_model_data["model"]["weights"]
-#     model_config = model_class.config_class.from_dict(loaded_model_data["model"]["config"])
-
-#     model = model_class(
-#         model_name=model_name_loaded,
-#         config=model_config,
-#     )
-#     model.load_state_dict(model_weights)
-#     model.to(device)
-#     model.eval()
-#     return model, model_config
-
-
-def select_model(choice : str):
+def select_model(choice: str):
     match choice:
         case "best2by2":
             model_name = "multi-digit-v1"
@@ -99,14 +75,11 @@ def display_test_images(model, data_info):
 if __name__ == "__main__":
     device = select_device()
 
-    #load the model and data info   
+    # Load the model and data info   
     name = "best4by4_var"
     all_names = ["best4by4_var", "best2by2"]
-    model_info = select_model(name)
+    model_path = select_model(name)["model_path"]
     data_info = get_data_info(name)
-
-    model_name = model_info["model_name"]
-    model_path = model_info["model_path"]
 
     model = DigitSequenceModel.load_for_evaluation(model_path=model_path, device=device)
 

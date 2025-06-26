@@ -11,7 +11,7 @@ import wandb
 import os
 
 from .models import DigitSequenceModel, DigitSequenceModelConfig, ImageEncoderConfig, EncoderBlockConfig, DecoderBlockConfig
-from .trainer import DigitSequenceModelTrainer
+from .trainer import DigitSequenceModelTrainer, DigitSequenceModelTrainingConfig
 from .common import select_device, TrainingConfig, TrainerOverrides, ModelBase, upload_model_artifact
 
 from .default_models import WANDB_PROJECT_NAME
@@ -89,7 +89,7 @@ def train_sweep_run():
             case _:
                 raise ValueError(f"Unknown positional embedding type: {config.positional_embedding}")
 
-        training_config = TrainingConfig(
+        training_config = DigitSequenceModelTrainingConfig(
             batch_size=config.batch_size,
             epochs=config.epochs,
             learning_rate=config.learning_rate,
@@ -97,11 +97,15 @@ def train_sweep_run():
             early_stopping_patience=early_stopping_patience,
         )
 
+        digits_in_width = 2
+        digits_in_height = 2
+        max_sequence_length = digits_in_width * digits_in_height + 1  # +1 for the end token
+
         model_config = DigitSequenceModelConfig(
-            max_sequence_length=11,
+            max_sequence_length=max_sequence_length,
             encoder=ImageEncoderConfig(
-                image_width=56,
-                image_height=56,
+                image_width=28 * digits_in_width,
+                image_height=56 * digits_in_height,
                 image_patch_width=7,
                 image_patch_height=7,
                 embedding_dimension=config.embedding_size,

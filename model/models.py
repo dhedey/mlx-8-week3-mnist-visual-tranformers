@@ -41,7 +41,10 @@ class DigitSequenceModelConfig(ModuleConfig):
 class DigitSequenceModel(ModelBase):
     def __init__(self, model_name: str, config: DigitSequenceModelConfig):
         super().__init__(model_name=model_name, config=config)
+
+        # It's already stored in the base class. But this helps the IDE understand its type.
         self.config = config
+
         if config.decoder_block.encoder_embedding_dimension != config.encoder.embedding_dimension:
             raise ValueError("Config inconsistency: The encoder embedding dimension in the encoder and decoder disagree")
 

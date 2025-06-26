@@ -31,7 +31,7 @@ random_transform = v2.Compose([
     v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
 ])
 
-def create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_size=28, show_individual=True, verbose=False):
+def nick_create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_size=28, show_individual=True, verbose=False):
     """
     Create a composite image with randomly positioned MNIST digits.
     
@@ -202,7 +202,7 @@ def create_composite_image(dataset, num_digits=6, canvas_size=(256, 256), digit_
 
 def get_composite_image_and_sequence(dataset, min_digits = 1, max_digits = 6, canvas_size=(256, 256), digit_size=28):
     num_digits = random.randint(min_digits, max_digits)
-    canvas, sequence = create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False)
+    canvas, sequence = nick_create_composite_image(dataset, num_digits, canvas_size, digit_size, show_individual=False)
     return canvas, sequence
 
 def generate_composite_batch(dataset, batch_size = 1, min_digits = 1, max_digits = 6, canvas_size=(256, 256), digit_size=28):
@@ -221,7 +221,7 @@ def generate_composite_batch(dataset, batch_size = 1, min_digits = 1, max_digits
     sequence_list = []
     for i in range(batch_size):
         num_digits = random.randint(min_digits, max_digits)
-        canvas, sequence = create_composite_image(
+        canvas, sequence = nick_create_composite_image(
             dataset,
             num_digits,
             canvas_size,
@@ -256,7 +256,7 @@ def main():
     if args.count == 1:
         # Single image - show individually
         print(f"\nGenerating composite image...")
-        canvas, sequence = create_composite_image(
+        canvas, sequence = nick_create_composite_image(
             dataset=dataset,
             num_digits=args.num_digits,
             canvas_size=(args.canvas_width, args.canvas_height),
@@ -274,7 +274,7 @@ def main():
         print(f"\nGenerating {args.count} composite images...")
         for i in range(args.count):
             print(f"Creating image {i+1}/{args.count}...")
-            canvas, sequence = create_composite_image(
+            canvas, sequence = nick_create_composite_image(
                 dataset=dataset,
                 num_digits=args.num_digits,
                 canvas_size=(args.canvas_width, args.canvas_height),
