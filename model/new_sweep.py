@@ -12,7 +12,7 @@ import os
 
 from .models import DigitSequenceModel, DigitSequenceModelConfig, ImageEncoderConfig, EncoderBlockConfig, DecoderBlockConfig
 from .trainer import DigitSequenceModelTrainer
-from .common import select_device, TrainingConfig, TrainerOverrides, ModelBase
+from .common import select_device, TrainingConfig, TrainerOverrides, ModelBase, upload_model_artifact
 
 PROJECT_NAME = "week3-mnist-transformers"
 
@@ -59,43 +59,6 @@ SWEEP_CONFIG = {
         },
     }
 }
-
-def upload_model_artifact(model_name: str, model_path: str, artifact_name: str = None, 
-                         metadata: dict = None, description: str = None):
-    """
-    Upload a model as a wandb artifact.
-    
-    Args:
-        model_name: Name of the model (used for artifact naming if artifact_name not provided)
-        model_path: Path to the saved model file
-        artifact_name: Optional custom artifact name (defaults to model_name)
-        metadata: Optional metadata dictionary to include with the artifact
-        description: Optional description for the artifact
-    """
-    if not os.path.exists(model_path):
-        print(f"⚠️  Model file not found: {model_path}")
-        return None
-    
-    # Use model_name as artifact name if not provided
-    if artifact_name is None:
-        artifact_name = model_name
-    
-    # Create artifact
-    artifact = wandb.Artifact(
-        name=artifact_name,
-        type="model",
-        description=description or f"Trained model: {model_name}",
-        metadata=metadata or {}
-    )
-    
-    # Add the model file
-    artifact.add_file(model_path, name=f"{model_name}.pt")
-    
-    # Log the artifact
-    wandb.log_artifact(artifact)
-    print(f"📦 Uploaded model artifact: {artifact_name}")
-    
-    return artifact
 
 def train_sweep_run():
     """
