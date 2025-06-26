@@ -28,7 +28,7 @@ DEFAULT_MODEL_PARAMETERS = {
             warmup_epochs=5,
         ),
         "model": DigitSequenceModelConfig(
-            max_sequence_length=11,
+            max_sequence_length=4 * 4 + 1,
             encoder=ImageEncoderConfig(
                 image_width=28 * 4,
                 image_height=28 * 4,

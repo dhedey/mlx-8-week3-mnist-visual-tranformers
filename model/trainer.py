@@ -183,12 +183,11 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
             transform=standard_transform,
             train=False,
         )
+        self.max_sequence_length = self.model.config.max_sequence_length
 
-        min_digits = 0
-        max_digits = 10
-        self.max_sequence_length = max_digits + 1 # +1 for start and stop tokens
-        canvas_size = (256, 256)
-
+        # min_digits = 0
+        # max_digits = 10
+        # canvas_size = (256, 256)
         # train_composite_dataset = CompositeDataset(
         #     dataset=train_sub_image_set,
         #     length=100000,
@@ -206,8 +205,8 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         #     digit_size=28,
         # )
 
-        train_composite_dataset = BesCombine(train=True, h_patches=4, w_patches=4, p_skip=0.3)
-        test_composite_dataset = BesCombine(train=False, h_patches=4, w_patches=4, p_skip=0.3)
+        train_composite_dataset = BesCombine(train=True, h_patches=4, w_patches=4, length=60000, p_skip=0.3)
+        test_composite_dataset = BesCombine(train=False, h_patches=4, w_patches=4, length=10000, p_skip=0.3)
 
         device = self.model.get_device()
         pin_memory = device == 'cuda'
