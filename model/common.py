@@ -320,7 +320,9 @@ class ModelTrainerBase:
             overrides: Optional[TrainerOverrides] = None,
         ):
         torch.manual_seed(42)
-        print(f"Initializing {self.__class__.__name__} for {model.__class__.__name__} named \"{model.model_name}\"...")
+
+        total_params_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Initializing {self.__class__.__name__} for {model.__class__.__name__} named \"{model.model_name}\" (total params = {total_params_count})...")
 
         if overrides is None:
             overrides = TrainerOverrides()

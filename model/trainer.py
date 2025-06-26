@@ -17,11 +17,12 @@ from typing import Optional
 import time
 from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
 from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
+from .models import SingleDigitModel, DigitSequenceModel
 
 class EncoderOnlyModelTrainer(ModelTrainerBase):
     def __init__(
             self,
-            model: ModelBase,
+            model: SingleDigitModel,
             config: TrainingConfig,
             overrides: Optional[TrainerOverrides] = None,
             continuation: Optional[TrainingState] = None,
@@ -155,7 +156,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
 class DigitSequenceModelTrainer(ModelTrainerBase):
     def __init__(
             self,
-            model: ModelBase,
+            model: DigitSequenceModel,
             config: TrainingConfig,
             overrides: Optional[TrainerOverrides] = None,
             continuation: Optional[TrainingState] = None,
@@ -205,8 +206,8 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         #     digit_size=28,
         # )
 
-        train_composite_dataset = BesCombine(train=True)
-        test_composite_dataset = BesCombine(train=False)
+        train_composite_dataset = BesCombine(train=True, h_patches=4, w_patches=4, length=10000, p_skip=0.3)
+        test_composite_dataset = BesCombine(train=False, h_patches=4, w_patches=4, length=2000, p_skip=0.3)
 
         device = self.model.get_device()
         pin_memory = device == 'cuda'

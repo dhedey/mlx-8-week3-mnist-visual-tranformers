@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 import torch
 import torchvision
 import numpy as np
+import os
 import einops
 from tqdm import tqdm
 
@@ -14,14 +15,16 @@ class BesCombine(Dataset):
     self.p_skip = p_skip
 
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
-    ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
+
+    data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+    ds = torchvision.datasets.MNIST(root=data_folder, train=train, download=True)
     self.ln = len(ds) if length is None else length
 
     # Pre-process all images and cache them in memory; first image is 0
     all_images = torch.cat((torch.zeros(1, 1, 28, 28), ds.data.unsqueeze(1).float() / 255.0))
     normalizer = torchvision.transforms.Normalize((0.1307,), (0.3081,))
     self.processed_images = normalizer(all_images)
-    self.all_labels = torch.cat((torch.zeros(1), ds.targets))
+    self.all_labels = torch.cat((torch.zeros(1), ds.targets)).to(torch.long)
     # Create a deterministic map of indices, so __getitem__(i) is always the same 
     self.index_map = [
        np.random.choice(range(1, self.ln + 1), self.h_patches * self.w_patches, replace=False) for _ in range(self.ln)]

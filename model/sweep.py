@@ -14,7 +14,7 @@ from .models import TrainingConfig, SingleDigitModel, SingleDigitModelConfig
 from .trainer import EncoderOnlyModelTrainer
 from .common import select_device
 
-PROJECT_NAME = "week3-mnist-transformers"
+from .default_models import WANDB_PROJECT_NAME
 
 # Sweep configuration - equivalent to wandb_sweep.yaml but in Python
 # https://docs.wandb.ai/guides/sweeps/sweep-config-keys/
@@ -173,8 +173,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Run hyperparameter sweeps')
-    parser.add_argument('--project', default=PROJECT_NAME,
-                        help=f'W&B project name (default: {PROJECT_NAME})')
+    parser.add_argument('--project', default=WANDB_PROJECT_NAME,
+                        help=f'W&B project name (default: {WANDB_PROJECT_NAME})')
     parser.add_argument('--count', type=int, default=20,
                         help='Number of sweep runs (default: 20)')
     parser.add_argument('--sweep-id', type=str,

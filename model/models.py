@@ -13,7 +13,6 @@ from typing import Optional, Self
 from .common import ModelBase, ModuleConfig, TrainingConfig, Field
 from .modules.encoder import EncoderBlockConfig, ImageEncoder, ImageEncoderConfig
 from .modules.decoder import DecoderBlockConfig, DecoderBlock
-from .trainer import ModelTrainerBase, EncoderOnlyModelTrainer, DigitSequenceModelTrainer, TrainerOverrides
 
 class SingleDigitModelConfig(ModuleConfig):
     encoder: ImageEncoderConfig
@@ -85,93 +84,6 @@ class DigitSequenceModel(ModelBase):
         logits = self.decoder_prediction_layer(residual_stream)
         
         return logits
-
-
-DEFAULT_MODEL_PARAMETERS = {
-    "multi-digit-v1": {
-        "training": TrainingConfig(
-            batch_size=512,
-            epochs=20,
-            learning_rate=0.0002,
-            optimizer="adamw",
-            warmup_epochs=5,
-        ),
-        "model": DigitSequenceModelConfig(
-            max_sequence_length=11,
-            encoder=ImageEncoderConfig(
-                image_width=56,
-                image_height=56,
-                image_patch_width=7,
-                image_patch_height=7,
-                embedding_dimension=32,
-                encoder_block_count=5,
-                encoder_block=EncoderBlockConfig(
-                    kq_dimension=16,
-                    v_dimension=16,
-                    embedding_dimension=32,
-                    num_heads=2,
-                    mlp_hidden_dimension=128,
-                    mlp_dropout=0.2,
-                ),
-            ),
-            decoder_block_count=2,
-            decoder_block=DecoderBlockConfig(
-                encoder_embedding_dimension=32,
-                decoder_embedding_dimension=32,
-
-                self_attention_kq_dimension=16,
-                self_attention_v_dimension=16,
-                self_attention_heads=2,
-
-                cross_attention_kq_dimension=16,
-                cross_attention_v_dimension=16,
-                cross_attention_heads=2,
-
-                mlp_hidden_dimension=128,
-                mlp_dropout=0.2,
-            ),
-        ),
-        "model_class": DigitSequenceModel,
-        "model_trainer": DigitSequenceModelTrainer,
-    },
-    "single-digit-v1": {
-        "training": TrainingConfig(
-            batch_size=256,
-            epochs=50,
-            learning_rate=0.001,
-            schedulers=["ReduceLROnPlateau"],
-        ),
-        "model": SingleDigitModelConfig(
-            encoder=ImageEncoderConfig(
-                image_width=28,
-                image_height=28,
-                image_patch_width=7,
-                image_patch_height=7,
-                embedding_dimension=32,
-                encoder_block_count=5,
-                encoder_block=EncoderBlockConfig(
-                    kq_dimension=16,
-                    v_dimension=16,
-                    embedding_dimension=32,
-                    num_heads=2,
-                    mlp_hidden_dimension=128,
-                    mlp_dropout=0.2,
-                ),
-            )
-        ),
-        "model_class": SingleDigitModel,
-        "model_trainer": EncoderOnlyModelTrainer,
-    },
-}
-
         
 if __name__ == "__main__":
-   for model_name, parameters in DEFAULT_MODEL_PARAMETERS.items():
-        best_version = f"{model_name}-best"
-        print(f"Loading Model: {best_version}")
-
-        trainer = ModelTrainerBase.load_with_model(best_version)
-        print(f"Latest validation metrics: {trainer.latest_validation_results}")
-   
-        print(f"Running model to check it's working...")
-        trainer.run_validation()
+   print("Run default_models instead of this file")

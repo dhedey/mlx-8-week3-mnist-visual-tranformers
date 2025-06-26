@@ -1,14 +1,10 @@
 # Run as uv run -m model.continue_train
 import argparse
-from .models import ModelBase, DEFAULT_MODEL_PARAMETERS
+from .default_models import DEFAULT_MODEL_NAME, WANDB_PROJECT_NAME
 from .trainer import ModelTrainerBase, TrainerOverrides
-from .common import upload_model_artifact
+from .common import upload_model_artifact, ModelBase
 import wandb
 import os
-
-DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
-PROJECT_NAME = "week3-mnist-transformers"
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Continue training a model')
@@ -44,7 +40,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--wandb-project', 
-        default=PROJECT_NAME, 
+        default=WANDB_PROJECT_NAME, 
         help='W&B project name (used if --from-wandb is set)'
     )
     parser.add_argument(
@@ -117,7 +113,7 @@ if __name__ == "__main__":
                     "model_config": trainer.model.config.to_dict(),
                     "training_config": trainer.config.to_dict(),
                     "final_validation_loss": results.last_validation.validation_loss,
-                    "final_train_loss": results.last_epoch.average_loss,
+                    "final_train_loss": results.last_training_epoch.average_loss,
                     "total_epochs": results.total_epochs,
                 }
                 

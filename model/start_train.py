@@ -2,13 +2,9 @@
 
 import argparse
 from .common import select_device, ModelBase, upload_model_artifact
-from .models import DEFAULT_MODEL_PARAMETERS
-from .trainer import EncoderOnlyModelTrainer, TrainerOverrides, DigitSequenceModelTrainer
+from .default_models import DEFAULT_MODEL_PARAMETERS, DEFAULT_MODEL_NAME, WANDB_PROJECT_NAME
 import wandb
 import os
-
-DEFAULT_MODEL_NAME = list(DEFAULT_MODEL_PARAMETERS.keys())[0]
-PROJECT_NAME = "week3-mnist-transformers"
 
 if __name__ == "__main__":
     device = select_device()
@@ -31,8 +27,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--wandb-project', 
-        default=PROJECT_NAME, 
-        help=f'W&B project name (default: {PROJECT_NAME})'
+        default=WANDB_PROJECT_NAME, 
+        help=f'W&B project name (default: {WANDB_PROJECT_NAME})'
     )
     parser.add_argument(
         '--no-upload-artifacts',
@@ -43,6 +39,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_name = args.model
+
+    if model_name not in DEFAULT_MODEL_PARAMETERS:
+        raise ValueError(f"Model '{model_name}' is not defined. The choices are: {list(DEFAULT_MODEL_PARAMETERS.keys())}")
 
     parameters = DEFAULT_MODEL_PARAMETERS[model_name]
 
@@ -72,7 +71,7 @@ if __name__ == "__main__":
             "model_config": parameters["model"].to_dict(),
             "training_config": parameters["training"].to_dict(),
             "final_validation_loss": results.last_validation.validation_loss,
-            "final_train_loss": results.last_epoch.average_loss,
+            "final_train_loss": results.last_training_epoch.average_loss,
             "total_epochs": results.total_epochs,
         }
         
