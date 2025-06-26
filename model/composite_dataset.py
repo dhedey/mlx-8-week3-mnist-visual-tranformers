@@ -4,11 +4,12 @@ import torch
 import torchvision
 import numpy as np
 import os
+import time
 import einops
 from tqdm import tqdm
 
 class BesCombine(Dataset):
-  def __init__(self, max_sequence_length: int, pad_token_id: int, start_token_id: int, stop_token_id: int, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
+  def __init__(self, max_sequence_length: int = 17, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
     super().__init__()
     #guarantee that h_patches and w_patches are integ
     self.h_patches = h_patches
@@ -24,7 +25,7 @@ class BesCombine(Dataset):
     self.max_sequence_length = max_sequence_length
 
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
-    gen = np.random.default_rng(42)
+    gen = np.random.default_rng(42) if not train else np.random.default_rng(int(time.time()))
     data_folder = os.path.join(os.path.dirname(__file__), "datasets")
     ds = torchvision.datasets.MNIST(root=data_folder, train=train, download=True)
     self.ln = len(ds) if length is None else int(length)
