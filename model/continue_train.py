@@ -166,7 +166,7 @@ if __name__ == "__main__":
             trainer.run_validation()
 
         if trainer.epoch >= trainer.config.epochs:
-            raise ValueError(f"Model {trainer.model.model_name} has already reached the maximum epochs ({trainer.config.epochs}). No further training will be performed.")
+            raise ValueError(f"Model {trainer.model.model_name} has already finished training its {trainer.config.epochs} epochs. Use --end-epoch <new_total_epochs> to continue training.")
 
         model_name = trainer.model.model_name
 
