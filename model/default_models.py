@@ -20,14 +20,54 @@ WANDB_ENTITY = "david-edey-machine-learning-institute"
 WANDB_PROJECT_NAME = "week3-mnist-transformers"
 
 DEFAULT_MODEL_PARAMETERS = {
-    "multi-digit-v2": {
+    "multi-digit-scrambled": {
+        "model_class": DigitSequenceModel,
+        "model": DigitSequenceModelConfig(
+            max_sequence_length=37,
+            encoder=ImageEncoderConfig(
+                image_width=28 * 6,
+                image_height=28 * 6,
+                image_patch_width=7,
+                image_patch_height=7,
+                embedding_dimension=64,
+                encoder_block_count=5,
+                encoder_block=EncoderBlockConfig(
+                    kq_dimension=32,
+                    v_dimension=32,
+                    embedding_dimension=64,
+                    num_heads=8,
+                    mlp_hidden_dimension=256,
+                    mlp_dropout=0.2,
+                ),
+            ),
+            decoder_block_count=3,
+            decoder_block=DecoderBlockConfig(
+                encoder_embedding_dimension=64,
+                decoder_embedding_dimension=64,
+
+                self_attention_kq_dimension=32,
+                self_attention_v_dimension=32,
+                self_attention_heads=8,
+
+                cross_attention_kq_dimension=32,
+                cross_attention_v_dimension=32,
+                cross_attention_heads=8,
+
+                mlp_hidden_dimension=256,
+                mlp_dropout=0.2,
+            ),
+        ),
+        "model_trainer": DigitSequenceModelTrainer,
         "training": DigitSequenceModelTrainingConfig(
             batch_size=256,
-            epochs=20,
-            learning_rate=0.0002,
+            epochs=100,
+            learning_rate=0.00015,
             optimizer="adamw",
-            warmup_epochs=5,
+            generator_kind="nick",
         ),
+    },
+    "multi-digit-v2": {
+        "model_class": DigitSequenceModel,
         "model": DigitSequenceModelConfig(
             max_sequence_length=4 * 4 + 1,
             encoder=ImageEncoderConfig(
@@ -63,17 +103,17 @@ DEFAULT_MODEL_PARAMETERS = {
                 mlp_dropout=0.2,
             ),
         ),
-        "model_class": DigitSequenceModel,
         "model_trainer": DigitSequenceModelTrainer,
-    },
-    "multi-digit-v1": {
         "training": DigitSequenceModelTrainingConfig(
-            batch_size=512,
+            batch_size=256,
             epochs=20,
             learning_rate=0.0002,
             optimizer="adamw",
             warmup_epochs=5,
         ),
+    },
+    "multi-digit-v1": {
+        "model_class": DigitSequenceModel,
         "model": DigitSequenceModelConfig(
             max_sequence_length=11,
             encoder=ImageEncoderConfig(
@@ -109,8 +149,14 @@ DEFAULT_MODEL_PARAMETERS = {
                 mlp_dropout=0.2,
             ),
         ),
-        "model_class": DigitSequenceModel,
         "model_trainer": DigitSequenceModelTrainer,
+        "training": DigitSequenceModelTrainingConfig(
+            batch_size=512,
+            epochs=20,
+            learning_rate=0.0002,
+            optimizer="adamw",
+            warmup_epochs=5,
+        ),
     },
     "single-digit-v1": {
         "model_class": SingleDigitModel,

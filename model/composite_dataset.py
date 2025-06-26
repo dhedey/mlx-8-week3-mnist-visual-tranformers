@@ -8,11 +8,19 @@ import einops
 from tqdm import tqdm
 
 class BesCombine(Dataset):
-  def __init__(self, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
+  def __init__(self, max_sequence_length: int, pad_token_id: int, start_token_id: int, stop_token_id: int, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
     super().__init__()
     self.h_patches = h_patches
     self.w_patches = w_patches
     self.p_skip = p_skip
+
+    self.pad_token_id = pad_token_id
+    self.start_token_id = start_token_id
+    self.stop_token_id = stop_token_id
+
+    if max_sequence_length < h_patches * w_patches + 1:
+       raise ValueError("The model's max_sequence_length must be at least h_patches * w_patches + 1")
+    self.max_sequence_length = max_sequence_length
 
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
     gen = np.random.default_rng(42)
@@ -46,12 +54,21 @@ class BesCombine(Dataset):
     #patch = einops.rearrange(combo, '(h ph) (w pw) -> (h w) ph pw', ph=14, pw=14)
     #label = [10] + label + [11]
     return combo, label
+  
+  def collate_fn(self, batch):
+    return sequence_collate_fn(
+        batch,
+        max_seq_length=self.max_sequence_length,
+        pad_token_id=self.pad_token_id,
+        start_token_id=self.start_token_id,
+        stop_token_id=self.stop_token_id
+    )
 
 
 class CompositeDataset(Dataset):
-    def __init__(self, dataset = None, length = 100000, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
+    def __init__(self, train: bool = True, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, dataset = None, length = 100000, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
         if dataset is None:
-            self.dataset = load_mnist_dataset()
+            self.dataset = load_mnist_dataset(train=train)
         else:
             self.dataset = dataset
         self.length = length
@@ -59,6 +76,10 @@ class CompositeDataset(Dataset):
         self.max_digits = max_digits
         self.canvas_size = canvas_size
         self.digit_size = digit_size
+
+        self.pad_token_id = pad_token_id
+        self.start_token_id = start_token_id
+        self.stop_token_id = stop_token_id
 
         print(f"Pre-generating {self.length} composite images... this may take a while.")
         self.canvases = []
@@ -73,8 +94,17 @@ class CompositeDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.canvases[idx], self.sequences[idx]
+    
+    def collate_fn(self, batch):
+        return sequence_collate_fn(
+            batch,
+            max_seq_length=self.max_digits + 1,
+            pad_token_id=self.pad_token_id,
+            start_token_id=self.start_token_id,
+            stop_token_id=self.stop_token_id
+        )
 
-def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1):
+def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1, start_token_id=10, stop_token_id=10):
     """
     Collate function for autoregressive sequence training.
     
@@ -87,13 +117,10 @@ def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1):
     input_sequences = []
     output_sequences = []
 
-    START_TOKEN = 10
-    STOP_TOKEN = 10
-
     for image, sequence in batch:
         images.append(image)
-        input_sequence = torch.cat((torch.tensor([START_TOKEN], dtype=torch.long), sequence))
-        output_sequence = torch.cat((sequence, torch.tensor([STOP_TOKEN], dtype=torch.long)))
+        input_sequence = torch.cat((torch.tensor([start_token_id], dtype=torch.long), sequence))
+        output_sequence = torch.cat((sequence, torch.tensor([stop_token_id], dtype=torch.long)))
 
         # Truncate or pad the sequences to the max_seq_length
         if len(input_sequence) > max_seq_length:

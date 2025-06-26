@@ -15,6 +15,8 @@ import math
 import os
 from typing import Optional
 import time
+
+from model.create_composite_david import IterableWithLength, composite_image_generator_david
 from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
 from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
 from .models import SingleDigitModel, DigitSequenceModel
@@ -164,6 +166,7 @@ class DigitSequenceModelTrainingConfig(TrainingConfig):
     training_set_size: float = 60000
     validation_set_size: float = 10000
     probability_of_skip: float = 0.3
+    generator_kind: str = "bes"
 
 class DigitSequenceModelTrainer(ModelTrainerBase):
     def __init__(
@@ -182,45 +185,89 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
 
         print("Preparing datasets...")
 
-        def create_dataset(train: bool, size: int):
-            return BesCombine(
-                train=train,
-                h_patches=self.model.config.encoder.image_height // 28,
-                w_patches=self.model.config.encoder.image_width // 28,
-                length=size,
-                p_skip=self.config.probability_of_skip,
+        device = self.model.get_device()
+
+        pad_token_id = -1
+        start_token_id = 10
+        stop_token_id = 10
+
+        def create_dataloader(kind: str, train: bool, size: int):
+            pin_memory = device == 'cuda'
+            match kind:
+                case "bes":
+                    dataset = BesCombine(
+                        train=train,
+                        h_patches=self.model.config.encoder.image_height // 28,
+                        w_patches=self.model.config.encoder.image_width // 28,
+                        length=size,
+                        p_skip=self.config.probability_of_skip,
+                        max_sequence_length=self.model.config.max_sequence_length,
+                        pad_token_id=pad_token_id,
+                        start_token_id=start_token_id,
+                        stop_token_id=stop_token_id,
+                    )
+                    collate_fn = dataset.collate_fn
+                case "nick":
+                    dataset = CompositeDataset(
+                        train=train,
+                        canvas_size=(self.model.config.encoder.image_height, self.model.config.encoder.image_width),
+                        digit_size=28,
+                        length=size,
+                        max_digits=self.model.config.max_sequence_length - 1,
+                        pad_token_id=pad_token_id,
+                        start_token_id=start_token_id,
+                        stop_token_id=stop_token_id,
+                    )
+                    collate_fn = dataset.collate_fn
+                case "david":
+                    data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+                    digit_dataset = torchvision.datasets.MNIST(
+                        data_folder,
+                        download=True,
+                        transform=v2.Compose([
+                            v2.ToImage(),
+                            v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+                            v2.RandomResize(28, 40),
+                            v2.RandomRotation(25),
+                            v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
+                        ]),
+                        train=train,
+                    )
+                    # This is effectively a data loader all in one
+                    output_batch_size = self.config.batch_size
+                    batches_per_epoch =size // output_batch_size
+                    generator = composite_image_generator_david(
+                        image_dataset=digit_dataset,
+                        output_width=self.model.config.encoder.image_width,
+                        output_height=self.model.config.encoder.image_height,
+                        output_batch_size=output_batch_size,
+                        batches_per_epoch=batches_per_epoch,
+                        padding_token_id=pad_token_id,
+                        start_token_id=start_token_id,
+                        end_token_id=stop_token_id,
+                        max_sequence_length=self.model.config.max_sequence_length,
+                    )
+                    return (output_batch_size * batches_per_epoch), IterableWithLength(generator, length=batches_per_epoch)
+                case _:
+                    raise ValueError(f"Unknown dataset kind: {kind}")
+                
+            return size, torch.utils.data.DataLoader(
+                dataset,
+                batch_size=self.config.batch_size,
+                shuffle=train,
+                num_workers=2,
+                collate_fn=collate_fn,
+                pin_memory=pin_memory, # Speed up CUDA
             )
 
-        train_composite_dataset = create_dataset(train=True, size=self.config.training_set_size)
-        test_composite_dataset = create_dataset(train=True, size=self.config.validation_set_size)
+        generator_kind = self.config.generator_kind
+        print("Using generator kind:", generator_kind)
 
-        device = self.model.get_device()
-        pin_memory = device == 'cuda'
-        self.train_loader = torch.utils.data.DataLoader(
-            train_composite_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=True,
-            num_workers=2,
-            collate_fn=self.collate_fn,
-            pin_memory=pin_memory, # Speed up CUDA
-        )
-        self.test_loader = torch.utils.data.DataLoader(
-            test_composite_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=True,
-            num_workers=2,
-            collate_fn=self.collate_fn,
-            pin_memory=pin_memory, # Speed up CUDA
-        )
-        print(f"Training set size: {len(train_composite_dataset)}")
-        print(f"Test set size: {len(test_composite_dataset)}")
+        train_size, self.train_loader = create_dataloader(kind=generator_kind, train=True, size=self.config.training_set_size)
+        test_size, self.test_loader = create_dataloader(kind=generator_kind, train=False, size=self.config.validation_set_size)
 
-    def collate_fn(self, batch):
-        return sequence_collate_fn(
-            batch,
-            max_seq_length=self.model.config.max_sequence_length,
-            pad_token_id=-1,
-        )
+        print(f"Training set size: {train_size}")
+        print(f"Test set size: {test_size}")
 
     def get_train_data_loader(self):
         return self.train_loader
