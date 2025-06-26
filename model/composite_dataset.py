@@ -7,6 +7,10 @@ import os
 import time
 import einops
 from tqdm import tqdm
+import hashlib
+import pickle
+import wandb
+from .wandb_config import WANDB_ENTITY, WANDB_PROJECT_NAME
 
 class BesCombine(Dataset):
   def __init__(self, max_sequence_length: int = 17, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
@@ -83,13 +87,206 @@ class CompositeDataset(Dataset):
         self.start_token_id = start_token_id
         self.stop_token_id = stop_token_id
 
-        print(f"Pre-generating {self.length} composite images... this may take a while.")
-        self.canvases = []
-        self.sequences = []
-        for _ in tqdm(range(self.length)):
-            canvas, sequence = get_composite_image_and_sequence(self.dataset, self.min_digits, self.max_digits, self.canvas_size, self.digit_size)
-            self.canvases.append(torch.tensor(canvas, dtype=torch.float).unsqueeze(0))
-            self.sequences.append(torch.tensor(sequence, dtype=torch.long))
+        # Generate cache key based on parameters
+        self.cache_key = self._generate_cache_key()
+        self.local_cache_path = self._get_local_cache_path()
+        
+        # Try to load from cache using three-tier strategy
+        self.canvases, self.sequences = self._load_or_create_dataset()
+
+    def _generate_cache_key(self) -> str:
+        """Generate a unique cache key based on dataset parameters."""
+        params = {
+            'train': hasattr(self.dataset, 'train') and self.dataset.train,
+            'length': self.length,
+            'min_digits': self.min_digits,
+            'max_digits': self.max_digits,
+            'canvas_size': self.canvas_size,
+            'digit_size': self.digit_size,
+        }
+        
+        # Create hash from parameters
+        param_str = str(sorted(params.items()))
+        return hashlib.md5(param_str.encode()).hexdigest()[:12]
+    
+    def _get_local_cache_path(self) -> str:
+        """Get the local cache file path."""
+        cache_dir = os.path.join(os.path.dirname(__file__), "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, f"composite_dataset_{self.cache_key}.pkl")
+    
+    def _get_wandb_artifact_name(self) -> str:
+        """Get the wandb artifact name for this dataset."""
+        train_suffix = "train" if (hasattr(self.dataset, 'train') and self.dataset.train) else "test"
+        return f"composite-dataset-{train_suffix}-{self.cache_key}"
+    
+    def _load_from_local_cache(self) -> tuple[list, list]:
+        """Try to load dataset from local cache."""
+        if os.path.exists(self.local_cache_path):
+            print(f"📁 Loading dataset from local cache: {self.local_cache_path}")
+            try:
+                with open(self.local_cache_path, 'rb') as f:
+                    data = pickle.load(f)
+                    if len(data['canvases']) == self.length and len(data['sequences']) == self.length:
+                        print(f"✅ Successfully loaded {len(data['canvases'])} samples from local cache")
+                        return data['canvases'], data['sequences']
+                    else:
+                        print(f"⚠️ Local cache has {len(data['canvases'])} samples, but need {self.length}. Will regenerate.")
+            except Exception as e:
+                print(f"⚠️ Failed to load from local cache: {e}")
+        return None, None
+    
+    def _load_from_wandb(self) -> tuple[list, list]:
+        """Try to load dataset from wandb artifact."""
+        artifact_name = self._get_wandb_artifact_name()
+        full_artifact_name = f"{WANDB_ENTITY}/{WANDB_PROJECT_NAME}/{artifact_name}:latest"
+        
+        print(f"🌐 Trying to download dataset from wandb: {full_artifact_name}")
+        
+        try:
+            # Initialize wandb API (doesn't start a run)
+            api = wandb.Api()
+            artifact = api.artifact(full_artifact_name)
+            
+            print(f"📥 Downloading artifact from wandb...")
+            download_dir = artifact.download()
+            
+            # Look for the pickle file in the downloaded directory
+            pickle_files = [f for f in os.listdir(download_dir) if f.endswith('.pkl')]
+            if not pickle_files:
+                print(f"⚠️ No pickle file found in wandb artifact")
+                return None, None
+            
+            pickle_path = os.path.join(download_dir, pickle_files[0])
+            with open(pickle_path, 'rb') as f:
+                data = pickle.load(f)
+                
+            if len(data['canvases']) == self.length and len(data['sequences']) == self.length:
+                print(f"✅ Successfully loaded {len(data['canvases'])} samples from wandb")
+                
+                # Save to local cache for future use
+                print(f"💾 Saving to local cache for future use...")
+                self._save_to_local_cache(data['canvases'], data['sequences'])
+                
+                return data['canvases'], data['sequences']
+            else:
+                print(f"⚠️ Wandb artifact has {len(data['canvases'])} samples, but need {self.length}. Will regenerate.")
+                
+        except Exception as e:
+            print(f"⚠️ Failed to load from wandb: {e}")
+        
+        return None, None
+    
+    def _save_to_local_cache(self, canvases: list, sequences: list) -> None:
+        """Save dataset to local cache."""
+        try:
+            data = {'canvases': canvases, 'sequences': sequences}
+            with open(self.local_cache_path, 'wb') as f:
+                pickle.dump(data, f)
+            print(f"💾 Saved dataset to local cache: {self.local_cache_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to save to local cache: {e}")
+    
+    def _upload_to_wandb(self, canvases: list, sequences: list) -> None:
+        """Upload dataset to wandb as an artifact."""
+        artifact_name = self._get_wandb_artifact_name()
+        
+        print(f"📤 Uploading dataset to wandb as artifact: {artifact_name}")
+        
+        try:
+            # Save to temporary file for upload
+            temp_path = self.local_cache_path + ".temp"
+            data = {'canvases': canvases, 'sequences': sequences}
+            with open(temp_path, 'wb') as f:
+                pickle.dump(data, f)
+            
+            # Initialize wandb run if not already active
+            if wandb.run is None:
+                wandb.init(
+                    project=WANDB_PROJECT_NAME,
+                    entity=WANDB_ENTITY,
+                    job_type="dataset-upload",
+                    name=f"upload-{artifact_name}",
+                    tags=["dataset", "composite", "mnist"]
+                )
+                should_finish_run = True
+            else:
+                should_finish_run = False
+            
+            # Create and upload artifact
+            artifact = wandb.Artifact(
+                name=artifact_name,
+                type="dataset",
+                description=f"Composite MNIST dataset with {self.length} samples, {self.min_digits}-{self.max_digits} digits, canvas {self.canvas_size}",
+                metadata={
+                    "length": self.length,
+                    "min_digits": self.min_digits,
+                    "max_digits": self.max_digits,
+                    "canvas_size": self.canvas_size,
+                    "digit_size": self.digit_size,
+                    "train": hasattr(self.dataset, 'train') and self.dataset.train,
+                    "cache_key": self.cache_key
+                }
+            )
+            
+            artifact.add_file(temp_path, name=f"composite_dataset_{self.cache_key}.pkl")
+            wandb.log_artifact(artifact)
+            
+            print(f"✅ Successfully uploaded dataset to wandb")
+            
+            # Clean up temp file
+            os.remove(temp_path)
+            
+            if should_finish_run:
+                wandb.finish()
+                
+        except Exception as e:
+            print(f"⚠️ Failed to upload to wandb: {e}")
+    
+    def _generate_dataset(self) -> tuple[list, list]:
+        """Generate a new dataset from scratch."""
+        print(f"🔄 Generating new composite dataset with {self.length} samples... this may take a while.")
+        
+        canvases = []
+        sequences = []
+        
+        for _ in tqdm(range(self.length), desc="Generating composite images"):
+            canvas, sequence = get_composite_image_and_sequence(
+                self.dataset, 
+                self.min_digits, 
+                self.max_digits, 
+                self.canvas_size, 
+                self.digit_size
+            )
+            canvases.append(torch.tensor(canvas, dtype=torch.float).unsqueeze(0))
+            sequences.append(torch.tensor(sequence, dtype=torch.long))
+        
+        return canvases, sequences
+    
+    def _load_or_create_dataset(self) -> tuple[list, list]:
+        """Three-tier loading strategy: local cache -> wandb -> generate new."""
+        
+        # Tier 1: Try local cache
+        canvases, sequences = self._load_from_local_cache()
+        if canvases is not None:
+            return canvases, sequences
+        
+        # Tier 2: Try wandb
+        canvases, sequences = self._load_from_wandb()
+        if canvases is not None:
+            return canvases, sequences
+        
+        # Tier 3: Generate new dataset
+        print(f"🆕 No cached version found. Generating new dataset...")
+        canvases, sequences = self._generate_dataset()
+        
+        # Save to local cache
+        self._save_to_local_cache(canvases, sequences)
+        
+        # Upload to wandb for sharing
+        self._upload_to_wandb(canvases, sequences)
+        
+        return canvases, sequences
 
     def __len__(self):
         return self.length
