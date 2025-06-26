@@ -44,8 +44,6 @@ if __name__ == "__main__":
 
     model_name = args.model
 
-    print(f"Starting training model: {model_name}")
-
     parameters = DEFAULT_MODEL_PARAMETERS[model_name]
 
     if args.wandb:

@@ -74,6 +74,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
         )
         print(f"Training set size: {len(train_set)}")
         print(f"Test set size: {len(test_set)}")
+        print()
 
     def get_train_data_loader(self):
         return self.train_loader
@@ -112,7 +113,6 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
 
             logits = results.intermediates["logits"]
             labels = results.intermediates["labels"]
-            loss = results.total_loss
             probabilities = F.softmax(logits, dim=1)
 
             for instance_logits, instance_label, instance_probabilities in zip(logits, labels, probabilities):
@@ -125,7 +125,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
                     correct_by_label[instance_label] += 1
                 total_probability_of_correct += instance_probabilities[instance_label].item()
 
-            total_loss += loss.item()
+            total_loss += results.total_loss.item()
             num_samples += results.num_samples
 
         proportion_correct = total_correct / num_samples if num_samples > 0 else 0.0
@@ -145,6 +145,7 @@ class EncoderOnlyModelTrainer(ModelTrainerBase):
 
         return ValidationResults(
             epoch=self.epoch,
+            average_training_loss=average_loss,
             validation_loss=average_loss,
             proportion_correct=proportion_correct,
             average_probability_of_correct=average_probability_of_correct,
@@ -332,6 +333,7 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
 
         return ValidationResults(
             epoch=self.epoch,
+            average_training_loss=average_loss,
             validation_loss=average_loss,
             average_loss_per_subimage=average_loss_per_subimage,
             proportion_subimages_correct=proportion_subimages_correct,
