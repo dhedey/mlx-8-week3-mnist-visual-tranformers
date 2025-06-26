@@ -2,7 +2,7 @@
 
 import argparse
 from .common import select_device, ModelBase, upload_model_artifact
-from .default_models import DEFAULT_MODEL_PARAMETERS, DEFAULT_MODEL_NAME, WANDB_PROJECT_NAME
+from .default_models import DEFAULT_MODEL_PARAMETERS, DEFAULT_MODEL_NAME, WANDB_PROJECT_NAME, WANDB_ENTITY
 import wandb
 import os
 
@@ -31,6 +31,11 @@ if __name__ == "__main__":
         help=f'W&B project name (default: {WANDB_PROJECT_NAME})'
     )
     parser.add_argument(
+        '--wandb-entity',
+        default=WANDB_ENTITY,
+        help='W&B entity name (used if --from-wandb is set)'
+    )
+    parser.add_argument(
         '--no-upload-artifacts',
         action='store_true',
         help='Disable artifact uploading to W&B (if wandb is enabled)'
@@ -46,12 +51,19 @@ if __name__ == "__main__":
     parameters = DEFAULT_MODEL_PARAMETERS[model_name]
 
     if args.wandb:
-        config = {
-            "model_name": model_name,
-            "model_config": parameters["model"].to_dict(),
-            "training_config": parameters["training"].to_dict(),
-        }
-        wandb.init(project=args.wandb_project, config=config)
+        run_id = wandb.util.generate_id()
+        wandb.init(
+            id=run_id,
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            name=f"train-{model_name}-{run_id}",
+            config={
+                "model_name": model_name,
+                "model_config": parameters["model"].to_dict(),
+                "training_config": parameters["training"].to_dict(),
+                "from_epoch": 0,
+            },
+        )
 
     model = parameters["model_class"](
         model_name=model_name,
@@ -64,8 +76,9 @@ if __name__ == "__main__":
     )
     results = trainer.train()
 
-    if args.wandb and not args.no_upload_artifacts:
+    if wandb.run is not None and not args.no_upload_artifacts:
         print("Uploading artifacts...")
+
         artifact_metadata = {
             "model_name": model_name,
             "model_config": parameters["model"].to_dict(),
@@ -75,8 +88,8 @@ if __name__ == "__main__":
             "total_epochs": results.total_epochs,
         }
         
-        model_path = ModelBase._model_path(model_name)
-        best_model_path = ModelBase._model_path(f"{model_name}-best")
+        model_path = ModelBase.model_path(model_name)
+        best_model_path = ModelBase.model_path(f"{model_name}-best")
 
         if os.path.exists(model_path):
             upload_model_artifact(

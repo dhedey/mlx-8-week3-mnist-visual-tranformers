@@ -31,6 +31,8 @@ git config --global user.name "David Edey"
 # => Discover existing sessions with tmux ls
 # => Reattach to the last session with tmux a (short for attach)
 # => Reattach with tmux attach -t 0
+# => Scroll with Ctrl+B [ then use the arrow keys or mouse to scroll up and down. Leave scroll mode with Esc or q
+
 tmux new -s sweep
 
 # Check GPU usage with the nvtop command

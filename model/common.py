@@ -108,7 +108,7 @@ class TrainingState(PersistableData):
     all_validation_results: list[ValidationResults] = Field(default_factory=list) # Default to support backwards compatibility
     scheduler_state: Optional[dict] = None # None to support backwards compatibility
 
-class TrainerOverrides(PydanticBaseModel):
+class TrainerOverrides(PersistableData):
     override_to_epoch: Optional[int] = None
     override_learning_rate: Optional[float] = None
     validate_after_epochs: int = 1
@@ -148,7 +148,7 @@ class ModelBase(nn.Module):
         return next(self.parameters()).device
     
     @staticmethod
-    def _model_path(model_name: str) -> str:
+    def model_path(model_name: str) -> str:
         model_folder = os.path.join(os.path.dirname(__file__), "saved")
         return os.path.join(model_folder, f"{model_name}.pt")
 
@@ -161,7 +161,7 @@ class ModelBase(nn.Module):
         if model_name is None:
             model_name = self.model_name
 
-        model_path = ModelBase._model_path(model_name)
+        model_path = ModelBase.model_path(model_name)
         pathlib.Path(os.path.dirname(model_path)).mkdir(parents=True, exist_ok=True)
 
         torch.save({
@@ -182,18 +182,26 @@ class ModelBase(nn.Module):
     @classmethod
     def load(
         cls,
-        model_name: str,
+        model_name: Optional[str] = None,
         override_class_name = None,
         device: Optional[str] = None,
         model_path: Optional[str] = None,
     ) -> tuple[Self, TrainingState, TrainingConfig]:
-        if model_path is None:
-            model_path = ModelBase._model_path(model_name)
         if device is None:
             device = select_device()
 
+        if model_path is None:
+            if model_name is not None:
+                model_path = ModelBase.model_path(model_name)
+            else:
+                raise ValueError("Either model_name or model_path must be provided to load a model.")
+
         loaded_model_data = torch.load(model_path, map_location=device)
         print(f"Model data read from {model_path}")
+
+        if model_name is None:
+            model_name = loaded_model_data["model"]["model_name"]
+    
         loaded_class_name = loaded_model_data["model"]["class_name"]
         actual_class_name = override_class_name if override_class_name is not None else loaded_class_name
 
@@ -205,7 +213,6 @@ class ModelBase(nn.Module):
         if not issubclass(model_class, cls):
             raise ValueError(f"The model {model_name} was attempted to be loaded with {cls.__name__}.load(\"{model_name}\") (loaded class name = {loaded_class_name}, override class name = {override_class_name}), but {model_class} is not a subclass of {cls}.")
 
-        model_name = loaded_model_data["model"]["model_name"]
         model_weights = loaded_model_data["model"]["weights"]
         model_config = model_class.config_class.from_dict(loaded_model_data["model"]["config"])
         training_config = TrainingConfig.from_dict(loaded_model_data["training"]["config"])
@@ -342,10 +349,14 @@ class ModelTrainerBase:
 
         self.optimizer = create_optimizer(self.model, self.config.optimizer, self.config.optimizer_params, self.config.learning_rate)
 
-        schedulers = self.config.schedulers
+        schedulers = self.config.schedulers.copy()
         if config.warmup_epochs > 0:
             print(f"{config.warmup_epochs} warm-up epochs were defined, so configuring an initial linear scheduler")
-            schedulers.insert(0, ("LinearLR", { "total_iters": config.warmup_epochs }))
+            if len(schedulers) > 0 and isinstance(schedulers[0], tuple) and schedulers[0][0] == "LinearLR":
+                # We already added a scheduler and persisted it (before there was a copy on the line above)
+                pass
+            else:
+                schedulers.insert(0, ("LinearLR", { "total_iters": config.warmup_epochs }))
 
         self.scheduler = create_composite_scheduler(self.optimizer, schedulers)
 
@@ -379,7 +390,7 @@ class ModelTrainerBase:
         print()
 
     @classmethod
-    def load_with_model(cls, model_name: str, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None, model_path: Optional[str] = None) -> Self:
+    def load_with_model(cls, model_name: Optional[str] = None, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None, model_path: Optional[str] = None) -> Self:
         model, state, config = ModelBase.load(model_name=model_name, device=device, model_path=model_path)
         return cls.load(
             model=model,

@@ -29,7 +29,7 @@ for model_name in [
     "encoder-only-positional-dropout",
     "encoder-only-positional-dropout-best",
 ]:
-    path = ModelBase._model_path(model_name)
+    path = ModelBase.model_path(model_name)
     data = torch.load(path)
     # if data["model"]["creation_state"]["hyper_parameters"]["heads_per_layer"] > 1:
     #     print(f"Fixing {model_name} attention heads from {data['model']['creation_state']["hyper_parameters"]['heads_per_layer']} to 1")

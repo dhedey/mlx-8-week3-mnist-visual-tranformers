@@ -169,8 +169,8 @@ def train_sweep_run():
                 }
                 
                 # Get model save paths
-                model_path = ModelBase._model_path(model_name)
-                best_model_path = ModelBase._model_path(f"{model_name}-best")
+                model_path = ModelBase.model_path(model_name)
+                best_model_path = ModelBase.model_path(f"{model_name}-best")
                 
                 # Upload final model
                 if os.path.exists(model_path):

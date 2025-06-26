@@ -16,6 +16,7 @@ from .modules.decoder import DecoderBlockConfig, DecoderBlock
 from .models import DigitSequenceModel, DigitSequenceModelConfig, SingleDigitModel, SingleDigitModelConfig
 from .trainer import ModelTrainerBase, DigitSequenceModelTrainer, EncoderOnlyModelTrainer
 
+WANDB_ENTITY = "david-edey-machine-learning-institute"
 WANDB_PROJECT_NAME = "week3-mnist-transformers"
 
 DEFAULT_MODEL_PARAMETERS = {
