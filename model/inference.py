@@ -33,9 +33,15 @@ from typing import Self
 
 
 def select_model(choice : str):
-    if choice == "best2by2":
-        model_name = "multi-digit-v1"
-        model_path = ModelBase.model_path("best2by2")
+    match choice:
+        case "best2by2":
+            model_name = "multi-digit-v1"
+            model_path = ModelBase.model_path("best2by2")
+        case "best4by4_var":
+            model_name = "multi-digit-v1"
+            model_path = ModelBase.model_path("best4by4")
+        case _:
+            raise ValueError(f"Invalid model choice: {choice}")
 
     return {
         "model_name": model_name,
@@ -43,19 +49,29 @@ def select_model(choice : str):
     }
 
 def get_data_info(choice : str):
-    if choice == "best2by2":
-        return {
-            "h_patches": 2,
-            "w_patches": 2,
-            "image_size": (56, 56),
-            "variable_length": False,
-        }
+    match choice:
+        case "best2by2":
+            return {
+                "h_patches": 2,
+                "w_patches": 2,
+                "image_size": (56, 56),
+                "variable_length": False,
+            }
+        case "best4by4_var":
+            return {
+                "h_patches": 4,
+                "w_patches": 4,
+                "image_size": (112, 112),
+                "variable_length": True,
+            }
+        case _:
+            raise ValueError(f"Invalid model choice: {choice}")
 
 def predict_sequence(model, image) -> np.ndarray:
     #start with only the start token
-    seq = torch.tensor([10] + [-1] * (model.config.max_sequence_length - 1))
+    seq = torch.tensor([10] + [-1] * (model.config.max_sequence_length))
     for i in range(model.config.max_sequence_length):
-        logits = model(image, seq)[0]
+        logits = model(image, seq[:-1])[0]
         #get the logits for the next token
         next_token_logits = logits[i, :]
         #sample the next token
@@ -84,7 +100,8 @@ if __name__ == "__main__":
     device = select_device()
 
     #load the model and data info   
-    name = "best2by2"
+    name = "best4by4_var"
+    all_names = ["best4by4_var", "best2by2"]
     model_info = select_model(name)
     data_info = get_data_info(name)
 
