@@ -2,25 +2,30 @@ from .create_composite import get_composite_image_and_sequence, load_mnist_datas
 from torch.utils.data import Dataset
 import torch
 import torchvision
-import random
+import numpy as np
 import einops
 from tqdm import tqdm
 
 class BesCombine(Dataset):
-  def __init__(self, train=True):
+  def __init__(self, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
     super().__init__()
+    self.h_patches = h_patches
+    self.w_patches = w_patches
+    self.p_skip = p_skip
+
     self.tk = { '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 's': 10}
     ds = torchvision.datasets.MNIST(root='.', train=train, download=True)
-    self.ln = len(ds)
+    self.ln = len(ds) if length is None else length
 
-    # Pre-process all images and cache them in memory
-    all_images = ds.data.unsqueeze(1).float() / 255.0
+    # Pre-process all images and cache them in memory; first image is 0
+    all_images = torch.cat((torch.zeros(1, 1, 28, 28), ds.data.unsqueeze(1).float() / 255.0))
     normalizer = torchvision.transforms.Normalize((0.1307,), (0.3081,))
     self.processed_images = normalizer(all_images)
-    self.all_labels = ds.targets
-    
-    # Create a deterministic map of indices, so __getitem__(i) is always the same
-    self.index_map = [random.sample(range(self.ln), 4) for _ in range(self.ln)]
+    self.all_labels = torch.cat((torch.zeros(1), ds.targets))
+    # Create a deterministic map of indices, so __getitem__(i) is always the same 
+    self.index_map = [
+       np.random.choice(range(1, self.ln + 1), self.h_patches * self.w_patches, replace=False) for _ in range(self.ln)]
+    self.skip_map = np.random.binomial(1, p_skip, size=(self.ln, self.h_patches * self.w_patches))
 
   def __len__(self):
     return self.ln
@@ -28,12 +33,14 @@ class BesCombine(Dataset):
   def __getitem__(self, idx):
     # Get the pre-determined list of 4 indices for this item
     image_indices = self.index_map[idx]
-    
+    skip_indices = self.skip_map[idx]
+    image_indices = np.logical_not(skip_indices) * image_indices
     # Retrieve the pre-processed images and labels using fast tensor indexing
-    stack = self.processed_images[image_indices].squeeze(1) # shape: (4, 28, 28)
-    label = self.all_labels[image_indices]
+    stack = self.processed_images[image_indices].squeeze(1) # shape: (h_patches * w_patches, 28, 28)
+    #only retrieve labels for non-skipped indices
+    label = self.all_labels[image_indices[np.logical_not(skip_indices)]]
 
-    combo = einops.rearrange(stack, '(h w) ph pw -> (h ph) (w pw)', h=2, w=2, ph=28, pw=28)
+    combo = einops.rearrange(stack, '(h w) ph pw -> (h ph) (w pw)', h=self.h_patches, w=self.w_patches, ph=28, pw=28)
     #patch = einops.rearrange(combo, '(h ph) (w pw) -> (h w) ph pw', ph=14, pw=14)
     #label = [10] + label + [11]
     return combo, label
