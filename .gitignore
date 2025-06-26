@@ -1,6 +1,7 @@
 # ML Specific
 wandb
 datasets
+artifacts
 
 # Python specific
 __pycache__/
