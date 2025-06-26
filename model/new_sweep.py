@@ -176,7 +176,7 @@ def train_sweep_run():
                 if os.path.exists(model_path):
                     upload_model_artifact(
                         model_name=model_name,
-                        model_path=model_path,
+                        file_path=model_path,
                         artifact_name=f"model-{run_id}",
                         metadata=artifact_metadata,
                         description=f"Final model from sweep run {run_id}"
@@ -187,8 +187,8 @@ def train_sweep_run():
                     best_metadata = artifact_metadata.copy()
                     best_metadata["model_type"] = "best_validation"
                     upload_model_artifact(
-                        model_name=f"{model_name}-best",
-                        model_path=best_model_path,
+                        model_name=model_name,
+                        file_path=best_model_path,
                         artifact_name=f"model-{run_id}-best",
                         metadata=best_metadata,
                         description=f"Best validation model from sweep run {run_id}"

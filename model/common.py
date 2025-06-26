@@ -156,18 +156,18 @@ class ModelBase(nn.Module):
             self,
             training_config: TrainingConfig,
             training_state: TrainingState,
-            model_name: Optional[str] = None,
+            file_name: Optional[str] = None,
         ):
-        if model_name is None:
-            model_name = self.model_name
+        if file_name is None:
+            file_name = self.model_name
 
-        model_path = ModelBase.model_path(model_name)
+        model_path = ModelBase.model_path(file_name)
         pathlib.Path(os.path.dirname(model_path)).mkdir(parents=True, exist_ok=True)
 
         torch.save({
             "model": {
                 "class_name": type(self).__name__,
-                "model_name": model_name,
+                "model_name": self.model_name,
                 "weights": self.state_dict(),
                 "config": self.config.to_dict(),
             },
@@ -584,7 +584,7 @@ class ModelTrainerBase:
             all_validation_results=self.all_validation_results,
         )
         self.model.save_model_data(
-            model_name=self.model.model_name,
+            file_name=self.model.model_name,
             training_config=self.config,
             training_state=training_state
         )
@@ -611,32 +611,33 @@ class ModelTrainerBase:
         if is_improvement:
             print(f"The current validation loss {format_optional_float(latest_validation_loss)} is better than the previous best validation loss {format_optional_float(best_validation_loss)} from epoch {best_validation_epoch}, saving as {best_model_name}...")
             self.model.save_model_data(
-                model_name=best_model_name,
+                file_name=best_model_name,
                 training_config=self.config,
                 training_state=training_state,
             )
         else:
             print(f"The current validation loss {format_optional_float(latest_validation_loss)} is not better than the previous best validation loss {format_optional_float(best_validation_loss)} from epoch {best_validation_epoch}, so not saving as best.")
 
-def upload_model_artifact(model_name: str, model_path: str, artifact_name: str = None, 
-                         metadata: dict = None, description: str = None):
+def upload_model_artifact(
+    model_name: str,
+    file_path: str,
+    artifact_name: str,
+    metadata: dict = None,
+    description: str = None
+):
     """
     Upload a model as a wandb artifact.
     
     Args:
-        model_name: Name of the model (used for artifact naming if artifact_name not provided)
+        model_name: Name of the model. Used for the file name inside the artifact.
         model_path: Path to the saved model file
         artifact_name: Optional custom artifact name (defaults to model_name)
         metadata: Optional metadata dictionary to include with the artifact
         description: Optional description for the artifact
     """
-    if not os.path.exists(model_path):
-        print(f"⚠️  Model file not found: {model_path}")
+    if not os.path.exists(file_path):
+        print(f"⚠️  Model file not found: {file_path}")
         return None
-    
-    # Use model_name as artifact name if not provided
-    if artifact_name is None:
-        artifact_name = model_name
     
     # Create artifact
     artifact = wandb.Artifact(
@@ -647,7 +648,7 @@ def upload_model_artifact(model_name: str, model_path: str, artifact_name: str =
     )
     
     # Add the model file
-    artifact.add_file(model_path, name=f"{model_name}.pt")
+    artifact.add_file(file_path, name=f"{model_name}.pt")
     
     # Log the artifact
     wandb.log_artifact(artifact)

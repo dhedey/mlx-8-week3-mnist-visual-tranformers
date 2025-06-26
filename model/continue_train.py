@@ -92,106 +92,110 @@ if __name__ == "__main__":
         validate_after_epochs=args.validate_after_epochs,
     )
 
-    use_wandb = args.wandb or args.wandb_continue_run is not None
-
-    match args.model_source:
-        case "default":
-            if use_wandb:
-                model_source = "wandb"
-            else:
-                model_source = "local"
-        case "wandb":
-            model_source = "wandb"
-        case "local":
-            model_source = "local"
-        case _:
-            raise ValueError(f"Unknown model_source {args.model_source}")
-
-    if use_wandb and args.wandb_continue_run is not None:
-        run = wandb.init(
-            entity=args.wandb_entity,
-            project=args.wandb_project,
-            id=args.wandb_continue_run,
-            resume="must"
-        )
-        print(f"🏃 Resumed wandb run {args.wandb_continue_run}")
-
-    match model_source:
-        case "local":
-            model_source_run = None
-            model_file_path = ModelBase.model_path(model_name=args.model)
-        case "wandb":
-            if args.wandb_artifact_name:
-                artifact_name = args.wandb_artifact_name
-                print(f"Loading provided artifact name: {artifact_name}")
-            elif wandb.run is not None:
-                model_name = wandb.run.config["model_name"]
-                artifact_name = f"{model_name}-{args.wandb_artifact_type}"
-                print(f"Loading artifact name from the continued run model name: {artifact_name}")
-            else:
-                model_name = args.model
-                artifact_name = f"{model_name}-{args.wandb_artifact_type}"
-                print(f"Assuming artifact name from the provided model name: {artifact_name}")
-
-            full_artifact_identifier = f"{args.wandb_entity}/{args.wandb_project}/{artifact_name}:{args.wandb_artifact_version}"
-            try:
-                if wandb.run is not None:
-                    artifact = wandb.run.use_artifact(full_artifact_identifier)
-                else:
-                    api = wandb.Api()
-                    artifact = api.artifact(full_artifact_identifier)
-            except wandb.errors.CommError as e:
-                print(f"Error: Could not find wandb artifact '{full_artifact_identifier}''. {e}")
-                exit(1)
-
-            model_source_run = artifact.logged_by()
-            download_path = artifact.download()
-            pt_files = [f for f in os.listdir(download_path) if f.endswith('.pt')]
-            if not pt_files:
-                print(f"Error: No .pt file found in downloaded artifact at {download_path}")
-                exit(1)
-            model_file_path = os.path.join(download_path, pt_files[0])
-            print(f"Found downloaded model file: {model_file_path}")
-        case _:
-            raise ValueError(f"Unknown model_source {model_source}")
-
-    trainer = ModelTrainerBase.load_with_model(
-        model_path=model_file_path,
-        overrides=overrides,
-    )
-    model_name = trainer.model.model_name
-
-    if use_wandb and wandb.run is None:
-        # Start a new W&B run for the continued training
-        new_run_id = wandb.util.generate_id()
-
-        config = {
-            "model_name": trainer.model.model_name,
-            "model_config": trainer.model.config.to_dict(),
-            "training_config": trainer.config.to_dict(),
-            "overrides": overrides.to_dict(),
-            "from_epoch": trainer.epoch,
-        }
-
-        if model_source_run is not None:
-            new_run_name = f"{model_source_run.id}-cont-{new_run_id}"
-            config["source_run_id"] = model_source_run.id
-        else:
-            new_run_name = f"train-{model_name}-{new_run_id}"
-
-        wandb.init(
-            id=new_run_id,
-            entity=args.wandb_entity,
-            project=args.wandb_project,
-            name=new_run_name,
-            config=config,
-        )
-        print(f"🏃 Started wandb run {wandb.run.id}")
-
     try:
+        use_wandb = args.wandb or args.wandb_continue_run is not None
+
+        match args.model_source:
+            case "default":
+                if use_wandb:
+                    model_source = "wandb"
+                else:
+                    model_source = "local"
+            case "wandb":
+                model_source = "wandb"
+            case "local":
+                model_source = "local"
+            case _:
+                raise ValueError(f"Unknown model_source {args.model_source}")
+
+        if use_wandb and args.wandb_continue_run is not None:
+            run = wandb.init(
+                entity=args.wandb_entity,
+                project=args.wandb_project,
+                id=args.wandb_continue_run,
+                resume="must"
+            )
+            print(f"🏃 Resumed wandb run {args.wandb_continue_run}")
+
+        match model_source:
+            case "local":
+                model_source_run = None
+                model_file_path = ModelBase.model_path(model_name=args.model)
+            case "wandb":
+                if args.wandb_artifact_name:
+                    artifact_name = args.wandb_artifact_name
+                    print(f"Loading provided artifact name: {artifact_name}")
+                elif wandb.run is not None:
+                    model_name = wandb.run.config["model_name"]
+                    artifact_name = f"{model_name}-{args.wandb_artifact_type}"
+                    print(f"Loading artifact name from the continued run model name: {artifact_name}")
+                else:
+                    model_name = args.model
+                    artifact_name = f"{model_name}-{args.wandb_artifact_type}"
+                    print(f"Assuming artifact name from the provided model name: {artifact_name}")
+
+                full_artifact_identifier = f"{args.wandb_entity}/{args.wandb_project}/{artifact_name}:{args.wandb_artifact_version}"
+                try:
+                    if wandb.run is not None:
+                        artifact = wandb.run.use_artifact(full_artifact_identifier)
+                    else:
+                        api = wandb.Api()
+                        artifact = api.artifact(full_artifact_identifier)
+                except wandb.errors.CommError as e:
+                    print(f"Error: Could not find wandb artifact '{full_artifact_identifier}''. {e}")
+                    exit(1)
+
+                model_source_run = artifact.logged_by()
+                download_path = artifact.download()
+                pt_files = [f for f in os.listdir(download_path) if f.endswith('.pt')]
+                if not pt_files:
+                    print(f"Error: No .pt file found in downloaded artifact at {download_path}")
+                    exit(1)
+                model_file_path = os.path.join(download_path, pt_files[0])
+                print(f"Found downloaded model file: {model_file_path}")
+            case _:
+                raise ValueError(f"Unknown model_source {model_source}")
+
+        trainer = ModelTrainerBase.load_with_model(
+            model_path=model_file_path,
+            overrides=overrides,
+        )
+
         if args.immediate_validation:
             print("Immediate validation enabled, running validation before training:")
             trainer.run_validation()
+
+        if trainer.epoch >= trainer.config.epochs:
+            raise ValueError(f"Model {trainer.model.model_name} has already reached the maximum epochs ({trainer.config.epochs}). No further training will be performed.")
+
+        model_name = trainer.model.model_name
+
+        if use_wandb and wandb.run is None:
+            # Start a new W&B run for the continued training
+            new_run_id = wandb.util.generate_id()
+
+            config = {
+                "model_name": trainer.model.model_name,
+                "model_config": trainer.model.config.to_dict(),
+                "training_config": trainer.config.to_dict(),
+                "overrides": overrides.to_dict(),
+                "from_epoch": trainer.epoch,
+            }
+
+            if model_source_run is not None:
+                new_run_name = f"{model_source_run.id}-cont-{new_run_id}"
+                config["source_run_id"] = model_source_run.id
+            else:
+                new_run_name = f"train-{model_name}-{new_run_id}"
+
+            wandb.init(
+                id=new_run_id,
+                entity=args.wandb_entity,
+                project=args.wandb_project,
+                name=new_run_name,
+                config=config,
+            )
+            print(f"🏃 Started wandb run {wandb.run.id}")
 
         results = trainer.train()
 
@@ -215,7 +219,7 @@ if __name__ == "__main__":
             if os.path.exists(model_path):
                 upload_model_artifact(
                     model_name=model_name,
-                    model_path=model_path,
+                    file_path=model_path,
                     artifact_name=f"{model_name}-final",
                     metadata=artifact_metadata,
                     description=f"Final model from continued run {wandb.run.id}"
@@ -225,8 +229,8 @@ if __name__ == "__main__":
                 best_metadata = artifact_metadata.copy()
                 best_metadata["model_type"] = "best_validation"
                 upload_model_artifact(
-                    model_name=f"{model_name}-best",
-                    model_path=best_model_path,
+                    model_name=model_name,
+                    file_path=best_model_path,
                     artifact_name=f"{model_name}-best",
                     metadata=best_metadata,
                     description=f"Best validation model from continued run {wandb.run.id}"
