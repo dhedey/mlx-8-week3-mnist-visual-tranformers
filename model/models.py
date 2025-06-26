@@ -141,9 +141,8 @@ DEFAULT_MODEL_PARAMETERS = {
         "training": TrainingConfig(
             batch_size=256,
             epochs=50,
-            learning_rate=0.0002,
-            optimizer="adamw",
-            warmup_epochs=5,
+            learning_rate=0.001,
+            schedulers=["ReduceLROnPlateau"],
         ),
         "model": SingleDigitModelConfig(
             encoder=ImageEncoderConfig(

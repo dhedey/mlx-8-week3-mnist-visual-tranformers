@@ -142,17 +142,17 @@ def train_sweep_run():
             config=model_config,
         )
 
-        trainer = DigitSequenceModelTrainer(model=model.to(device), config=training_config, overrides=TrainerOverrides())
+        trainer = DigitSequenceModelTrainer(model=model.to(device), config=training_config)
         results = trainer.train()
         
         # Log final metrics
         log_data = {
-            "final_train_average_loss": results.last_epoch.average_loss,
+            "final_train_average_loss": results.last_training_epoch.average_loss,
+            "best_train_average_loss": results.best_training_epoch.average_loss,
+            "final_validation_loss": results.last_validation.validation_loss,
+            "best_validation_loss": results.best_validation.validation_loss,
             "total_epochs": results.total_epochs,
         }
-        for key, value in results.last_validation.model_dump().items():
-            #note: Keys are already prefixed with "validation_"
-            log_data[f"final_{key}"] = value
         wandb.log(log_data)
         
         # Upload model artifacts if enabled
@@ -162,7 +162,7 @@ def train_sweep_run():
                 artifact_metadata = {
                     "config": dict(config),
                     "final_validation_loss": results.last_validation.validation_loss,
-                    "final_train_loss": results.last_epoch.average_loss,
+                    "final_train_loss": results.last_training_epoch.average_loss,
                     "total_epochs": results.total_epochs,
                     "wandb_run_id": run_id,
                     "model_architecture": "ImageSequenceTransformer",

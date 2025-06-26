@@ -108,12 +108,12 @@ def train_sweep_run():
         
         # Log final metrics
         log_data = {
-            "final_train_average_loss": results.last_epoch.average_loss,
+            "final_train_average_loss": results.last_training_epoch.average_loss,
+            "best_train_average_loss": results.best_training_epoch.average_loss,
+            "final_validation_loss": results.last_validation.validation_loss,
+            "best_validation_loss": results.best_validation.validation_loss,
             "total_epochs": results.total_epochs,
         }
-        validation_metrics = results.last_validation.to_dict()
-        for key in validation_metrics.keys():
-            log_data[f"final_validation_{key}"] = validation_metrics[key]
         wandb.log(log_data)
         
         print(f"✅ Sweep run completed!")

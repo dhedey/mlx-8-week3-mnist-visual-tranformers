@@ -11,37 +11,70 @@ from typing import Optional, Self
 from pydantic import BaseModel as PydanticBaseModel, Field
 
 class PersistableData(PydanticBaseModel):
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return self.model_dump()
     
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d) -> Self:
         return cls(**d)
 
 class ModuleConfig(PersistableData):
     pass
 
+_selected_device = None
+
 def select_device():
-    DEVICE_IF_MPS_SUPPORT = 'cpu' # or 'mps' - but it doesn't work well with EmbeddingBag
-    device = torch.device('cuda' if torch.cuda.is_available() else DEVICE_IF_MPS_SUPPORT if torch.backends.mps.is_available() else 'cpu')
-    
-    print(f'Selected device: {device}')
-    return device
+    global _selected_device
+    if _selected_device is None:
+        DEVICE_IF_MPS_SUPPORT = 'cpu' # or 'mps' - but it doesn't work well with EmbeddingBag
+        device = torch.device('cuda' if torch.cuda.is_available() else DEVICE_IF_MPS_SUPPORT if torch.backends.mps.is_available() else 'cpu')
+        
+        print(f'Selected device: {device}')
+        _selected_device = device
+
+    return _selected_device
 
 class TrainingConfig(PersistableData):
     batch_size: int
     epochs: int
     learning_rate: float
     warmup_epochs: int = 0 # Number of epochs to warm up the learning rate
-    optimizer: str = "adam" # "adam" or "adamw". Default should be changed to "adamw" in the future.    early_stopping: bool = False
+    optimizer: str = "AdamW"
+    """
+    The optimizer to use for training.
+    Currently supports "Adam" and "AdamW".
+    In future, it could support any under https://docs.pytorch.org/docs/stable/optim.html#torch.optim.Optimizer
+    """
+    optimizer_params: Optional[dict] = None
+    """
+    The parameters to use with the optimizer. You don't need to set the learning rate, this is overridden from the learning_rate field.
+    """
+    schedulers: list[str | tuple[str, dict]] = Field(default_factory=list, description="List of (scheduler_name, scheduler_params) tuples")
+    """
+    The scheduler/s to use for training along with their parameters.
+    The names should be any scheduler name under the `torch.optim.lr_scheduler` namespace, e.g. "LRScheduler"
+    If a list of scheduler names is provided, they will be wrapped in a chained scheduler.
+    See https://docs.pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate for more details.
+    """
     early_stopping: bool = False
     early_stopping_patience: int = 5
 
 class ValidationResults(PersistableData, extra="allow"):
     epoch: int
+    average_training_loss: float
+    """
+    The average training loss is a measure of how well the model performs on the validation set, in comparison to the training set.
+    IMPORTANT: This must be comparable to the training loss, to act as a measure of overfitting.
+    """
     # This should be some measure of how well the validation went. Low is good.
     # It could simply be the average loss over the validation set, or some other better metric.
+    # It should be comparable between epochs, but is not necessarily comparable to the training loss.
     validation_loss: float
+    """
+    The validation loss is a good measure of how well the model performs on the validation set.
+    It could simply be the same as average_training_loss but could be any other better metric, so long as it is comparable between epochs.
+    IMPORTANT: It is not necessarily comparable to the training average loss.
+    """
     # You can add more fields here simply by adding them to the constructor
 
 @dataclass
@@ -58,7 +91,9 @@ class EpochTrainingResults(PersistableData):
 class FullTrainingResults(PersistableData):
     total_epochs: int
     last_validation: ValidationResults
-    last_epoch: EpochTrainingResults
+    best_validation: ValidationResults
+    last_training_epoch: EpochTrainingResults
+    best_training_epoch: EpochTrainingResults
 
 class TrainingState(PersistableData):
     epoch: int
@@ -66,7 +101,12 @@ class TrainingState(PersistableData):
     model_trainer_class_name: str
     total_training_time_seconds: float
     latest_training_results: EpochTrainingResults
+    best_training_results: Optional[EpochTrainingResults] = None # None to support backwards compatibility
+    all_training_results: list[EpochTrainingResults] = Field(default_factory=list) # Default to support backwards compatibility
     latest_validation_results: ValidationResults
+    best_validation_results: Optional[ValidationResults] = None # None to support backwards compatibility
+    all_validation_results: list[ValidationResults] = Field(default_factory=list) # Default to support backwards compatibility
+    scheduler_state: Optional[dict] = None # None to support backwards compatibility
 
 class TrainerOverrides(PydanticBaseModel):
     override_to_epoch: Optional[int] = None
@@ -185,6 +225,84 @@ class ModelBase(nn.Module):
         model.eval()
         return model
 
+def create_composite_scheduler(
+    optimizer: optim.Optimizer,
+    schedulers: list[str | tuple[str, dict]],
+) -> Optional[optim.lr_scheduler.LRScheduler]:
+    def map_scheduler(scheduler: str | tuple[str, dict]) -> optim.lr_scheduler.LRScheduler:
+        if isinstance(scheduler, str):
+            return create_scheduler(optimizer, scheduler, {})
+        else:
+            return create_scheduler(optimizer, scheduler[0], scheduler[1])
+
+    match len(schedulers):
+        case 0:
+            return None
+        case 1:
+            return map_scheduler(schedulers[0])
+        case _:
+            # This doesn't work with `ReduceLROnPlateau`...
+            # Maybe we could create our own ChainedScheduler where it does work, by intelligently passing through the metrics field
+            return optim.lr_scheduler.ChainedScheduler([
+                map_scheduler(scheduler) for scheduler in schedulers
+            ])
+
+def create_scheduler(
+    optimizer: optim.Optimizer,
+    scheduler_type: str,
+    scheduler_params: dict,
+) -> optim.lr_scheduler.LRScheduler:
+    match scheduler_type:
+        case "LRScheduler":
+            return optim.lr_scheduler.LRScheduler(optimizer, **scheduler_params)
+        case "LambdaLR":
+            return optim.lr_scheduler.LambdaLR(optimizer, **scheduler_params)
+        case "MultiplicativeLR":
+            return optim.lr_scheduler.MultiplicativeLR(optimizer, **scheduler_params)
+        case "StepLR":
+            return optim.lr_scheduler.StepLR(optimizer, **scheduler_params)
+        case "MultiStepLR":
+            return optim.lr_scheduler.MultiStepLR(optimizer, **scheduler_params)
+        case "LinearLR":
+            return optim.lr_scheduler.LinearLR(optimizer, **scheduler_params)
+        case "ExponentialLR":
+            return optim.lr_scheduler.ExponentialLR(optimizer, **scheduler_params)
+        case "PolynomialLR":
+            return optim.lr_scheduler.PolynomialLR(optimizer, **scheduler_params)
+        case "CosineAnnealingLR":
+            return optim.lr_scheduler.CosineAnnealingLR(optimizer, **scheduler_params)
+        case "SequentialLR":
+            return optim.lr_scheduler.SequentialLR(optimizer, **scheduler_params)
+        case "ReduceLROnPlateau":
+            return optim.lr_scheduler.ReduceLROnPlateau(optimizer, **scheduler_params)
+        case "CyclicLR":
+            return optim.lr_scheduler.CyclicLR(optimizer, **scheduler_params)
+        case "OneCycleLR":
+            return optim.lr_scheduler.OneCycleLR(optimizer, **scheduler_params)
+        case "CosineAnnealingWarmRestarts":
+            return optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, **scheduler_params)
+        case _:
+            raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
+
+def create_optimizer(
+    model: ModelBase,
+    optimizer_name: str,
+    optimizer_params: Optional[dict],
+    learning_rate: float,
+) -> optim.Optimizer:
+    if optimizer_params is None:
+        optimizer_params = {}
+
+    optimizer_params["lr"] = learning_rate
+
+    match optimizer_name.lower():
+        case "adam":
+            return optim.Adam(model.parameters(), **optimizer_params)
+        case "adamw":
+            return optim.AdamW(model.parameters(), **optimizer_params)
+        case _:
+            raise ValueError(f"Unsupported optimizer type: {optimizer_name}")
+
 class ModelTrainerBase:
     registered_types: dict[str, type[Self]] = {}
 
@@ -202,6 +320,7 @@ class ModelTrainerBase:
             overrides: Optional[TrainerOverrides] = None,
         ):
         torch.manual_seed(42)
+        print(f"Initializing {self.__class__.__name__} for {model.__class__.__name__} named \"{model.model_name}\"...")
 
         if overrides is None:
             overrides = TrainerOverrides()
@@ -210,8 +329,6 @@ class ModelTrainerBase:
         self.config = config
 
         self.validate_after_epochs = overrides.validate_after_epochs
-        self.best_validation_loss = None
-        self.early_stopping_counter = 0
 
         if overrides.override_to_epoch is not None:
             self.config.epochs = overrides.override_to_epoch
@@ -221,26 +338,43 @@ class ModelTrainerBase:
             print(f"Overriding learning rate to {overrides.override_learning_rate}")
             self.config.learning_rate = overrides.override_learning_rate
 
-        match self.config.optimizer:
-            case "adam":
-                self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
-            case "adamw":
-                self.optimizer = optim.AdamW(self.model.parameters(), lr=self.config.learning_rate)
-            case _:
-                raise ValueError(f"Unsupported optimizer type: {self.config.optimizer}")
+        self.optimizer = create_optimizer(self.model, self.config.optimizer, self.config.optimizer_params, self.config.learning_rate)
+
+        schedulers = self.config.schedulers
+        if config.warmup_epochs > 0:
+            print(f"{config.warmup_epochs} warm-up epochs were defined, so configuring an initial linear scheduler")
+            schedulers.insert(0, ("LinearLR", { "total_iters": config.warmup_epochs }))
+
+        self.scheduler = create_composite_scheduler(self.optimizer, schedulers)
 
         if continuation is not None:
             self.epoch = continuation.epoch
             self.optimizer.load_state_dict(continuation.optimizer_state)
+            if overrides.override_learning_rate is not None:
+                # After loading the state dict, we need to set the override again
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = overrides.override_learning_rate
+            if self.scheduler is not None and continuation.scheduler_state is not None:
+                self.scheduler.load_state_dict(continuation.scheduler_state)
             self.total_training_time_seconds = continuation.total_training_time_seconds
             self.latest_training_results = continuation.latest_training_results
+            self.best_training_results = continuation.best_training_results if continuation.best_training_results is not None else continuation.latest_training_results
+            self.all_training_results = continuation.all_training_results
             self.latest_validation_results = continuation.latest_validation_results
-            print(f"Resuming training from epoch {self.epoch}")
+            self.best_validation_results = continuation.best_validation_results if continuation.best_validation_results is not None else continuation.latest_validation_results
+            self.all_validation_results = continuation.all_validation_results
+            print(f"Resuming training from saved state after epoch {self.epoch}")
         else:
             self.epoch = 0
             self.total_training_time_seconds = 0.0
             self.latest_training_results = None
+            self.best_training_results = None
+            self.all_training_results = []
             self.latest_validation_results = None
+            self.best_validation_results = None
+            self.all_validation_results = []
+
+        print()
 
     @classmethod
     def load_with_model(cls, model_name: str, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None, model_path: Optional[str] = None) -> Self:
@@ -274,64 +408,65 @@ class ModelTrainerBase:
         return trainer
 
     def train(self) -> FullTrainingResults:
-        print("Beginning training...")
-
         while self.epoch < self.config.epochs:
             self.epoch += 1
-            print(f"Starting epoch {self.epoch}/{self.config.epochs}")
-            self.train_epoch()
+            print(f"======================== EPOCH {self.epoch}/{self.config.epochs} ========================")
             print()
-            if self.epoch % self.validate_after_epochs == 0 or self.epoch == self.config.epochs:
+            self.train_epoch()
+            if self.epoch % self.validate_after_epochs == 0 or self.epoch == self.config.epochs or self.latest_validation_results is None:
                 self.run_validation()
 
                 if wandb.run is not None:
                     log_data = {
                         "epoch": self.epoch,
                     }
-                    for key, value in self.latest_validation_results.to_dict().items():
-                        #note: Loss is already prefixed with "validation_"
-                        log_data[f"{key}"] = value
-                    for key, value in self.latest_training_results.to_dict().items():
-                        if key != "epoch":
-                            log_data[f"epoch_{key}"] = value
+                    def add_prefixed(data: dict, dict: dict, prefix: str):
+                        for key, value in dict.items():
+                            if key == "epoch":
+                                continue
+                            if key.startswith(prefix):
+                                data[f"{prefix}_{key}"] = value
+                            else:
+                                data[f"{prefix}_{key}"] = value
+                    add_prefixed(log_data, self.latest_validation_results.to_dict(), "validation_")
+                    add_prefixed(log_data, self.latest_training_results.to_dict(), "train_")
     
                     wandb.log(log_data)
-                if self.config.early_stopping:
-                    current_validation_loss = self.latest_validation_results.validation_loss
-                    
-                    if self.best_validation_loss is None or current_validation_loss < self.best_validation_loss:
-                        self.best_validation_loss = current_validation_loss
-                        self.early_stopping_counter = 0
-                    else:
-                        self.early_stopping_counter += 1
-                        if self.early_stopping_counter * self.validate_after_epochs >= self.config.early_stopping_patience:
-                            print("Early stopping triggered")
-                            break                
+            else:
+                print(f"Skipping validation after epoch {self.epoch} because validate_after_epochs is set to {self.validate_after_epochs}, and it's not the first or last epoch")
+
+            if self.scheduler is not None:
+                print(f"Stepping scheduler at end of epoch {self.epoch}")
+
+                # Handle the parameters for the ReduceLROnPlateau scheduler
+                scheduler_step_parameters = inspect.signature(self.scheduler.step).parameters
+                if "metrics" in scheduler_step_parameters.keys():
+                    self.scheduler.step(self.latest_validation_results.validation_loss)
+                else:
+                    self.scheduler.step()
+
             self.save_model()
             print()
+
+            if self.config.early_stopping:
+                best_results_epochs_ago = self.best_validation_results.epoch - self.latest_validation_results.epoch
+
+                if best_results_epochs_ago > self.config.early_stopping_patience:
+                    print(f"Early stopping triggered at epoch {self.latest_validation_results.epoch}, because the best validation results occurred at epoch {self.best_validation_results.epoch}, over {self.config.early_stopping_patience} epochs ago")
+                    break
 
         print("Training complete.")
 
         return FullTrainingResults(
             total_epochs=self.config.epochs,
             last_validation=self.latest_validation_results,
-            last_epoch=self.latest_training_results,
+            best_validation=self.best_validation_results,
+            last_training_epoch=self.latest_training_results,
+            best_training_epoch=self.best_training_results,
         )
 
     def train_epoch(self):
         self.model.train()
-
-        # TODO: Replace with a scheduler for learning rate
-        if self.epoch <= self.config.warmup_epochs:
-            warmup_factor = self.epoch / self.config.warmup_epochs
-            learning_rate = self.config.learning_rate * warmup_factor
-            print(f"Warmup epoch {self.epoch}, learning rate set to {warmup_factor} * {self.config.learning_rate:.6f} = {learning_rate:.6f}")
-        else:
-            learning_rate = self.config.learning_rate
-
-        # Apply the learning rate, even if out of warmup, to ensure warmup is disabled
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = learning_rate
 
         print_every = 10
         running_loss = 0.0
@@ -341,6 +476,8 @@ class ModelTrainerBase:
         
         start_epoch_time_at = time.time()
 
+        print(f"> Starting training...")
+        print()
         epoch_loss = 0.0
         epoch_samples = 0
         for batch_idx, raw_batch in enumerate(train_data_loader):
@@ -364,16 +501,25 @@ class ModelTrainerBase:
 
         average_loss = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
         training_time = time.time() - start_epoch_time_at
-        print(f"Epoch {self.epoch} complete (Average Loss: {average_loss:.3g}, Time: {training_time:.1f}s)")
+        print()
+        print(f"Epoch training complete (Average Loss: {average_loss:.3g}, Time: {training_time:.1f}s)")
+        print()
 
         if self.total_training_time_seconds is not None:
             self.total_training_time_seconds += training_time
 
-        self.latest_training_results = EpochTrainingResults(
+        training_results = EpochTrainingResults(
             epoch=self.epoch,
             average_loss=average_loss,
             num_samples=epoch_samples,
         )
+        self.latest_training_results = training_results
+
+        if len(self.all_training_results) == 0 or self.all_training_results[-1].epoch < training_results.epoch:
+            self.all_training_results.append(training_results)
+
+        if self.best_training_results is None or training_results.average_loss < self.best_training_results.average_loss:
+            self.best_training_results = training_results
 
     def process_batch(self, raw_batch) -> BatchResults:
         raise NotImplementedError("This class method should be implemented by subclasses.")
@@ -382,12 +528,29 @@ class ModelTrainerBase:
         raise NotImplementedError("This class method should be implemented by subclasses.")
 
     def run_validation(self):
-        print("== VALIDATING MODEL ==")
+        print("> Starting validation...")
         print()
         self.model.eval()
+        start_time = time.time()
         with torch.no_grad():
-            validation_metrics = self._validate()
-        self.latest_validation_results = validation_metrics
+            validation_results = self._validate()
+        self.latest_validation_results = validation_results
+        if len(self.all_validation_results) == 0 or self.all_validation_results[-1].epoch < validation_results.epoch:
+            self.all_validation_results.append(validation_results)
+        if self.best_validation_results is None or validation_results.validation_loss < self.best_validation_results.validation_loss:
+            self.best_validation_results = validation_results
+
+        time_elapsed = time.time() - start_time
+        validation_average_train_loss = self.latest_validation_results.average_training_loss
+        if self.latest_training_results is not None:
+            train_average_loss = self.latest_training_results.average_loss
+            overfitting_measure = (validation_average_train_loss - train_average_loss)/validation_average_train_loss if validation_average_train_loss > 0 else float('inf')
+        else:
+            train_average_loss = "UNK"
+            overfitting_measure = "UNK"
+        
+        print(f"Validation complete (Validation loss: {validation_results.validation_loss:.3g}, Time: {time_elapsed:.1f}s, Val/Train Loss: {validation_average_train_loss:.3g}/{train_average_loss:.3g}, Overfitting: {overfitting_measure:.2%})")
+        print()
 
     def _validate(self) -> ValidationResults: 
         raise NotImplementedError("This class method should be implemented by subclasses")
@@ -396,10 +559,15 @@ class ModelTrainerBase:
         training_state = TrainingState(
             epoch=self.epoch,
             optimizer_state=self.optimizer.state_dict(),
+            scheduler_state=self.scheduler.state_dict(),
             model_trainer_class_name=self.__class__.__name__,
             total_training_time_seconds=self.total_training_time_seconds,
             latest_training_results=self.latest_training_results,
+            all_training_results=self.all_training_results,
+            best_training_results=self.best_training_results,
             latest_validation_results=self.latest_validation_results,
+            best_validation_results=self.best_validation_results,
+            all_validation_results=self.all_validation_results,
         )
         self.model.save_model_data(
             model_name=self.model.model_name,
