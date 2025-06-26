@@ -15,9 +15,7 @@ from .modules.encoder import EncoderBlockConfig, ImageEncoder, ImageEncoderConfi
 from .modules.decoder import DecoderBlockConfig, DecoderBlock
 from .models import DigitSequenceModel, DigitSequenceModelConfig, SingleDigitModel, SingleDigitModelConfig
 from .trainer import ModelTrainerBase, DigitSequenceModelTrainer, DigitSequenceModelTrainingConfig, SingleDigitModelTrainer, SingleDigitModelTrainingConfig
-
-WANDB_ENTITY = "david-edey-machine-learning-institute"
-WANDB_PROJECT_NAME = "week3-mnist-transformers"
+from .wandb_config import WANDB_ENTITY, WANDB_PROJECT_NAME
 
 DEFAULT_MODEL_PARAMETERS = {
     "multi-digit-scrambled": {
@@ -29,21 +27,21 @@ DEFAULT_MODEL_PARAMETERS = {
                 image_height=28 * 6,
                 image_patch_width=7,
                 image_patch_height=7,
-                embedding_dimension=64,
-                encoder_block_count=5,
+                embedding_dimension=128,
+                encoder_block_count=10,
                 encoder_block=EncoderBlockConfig(
                     kq_dimension=32,
                     v_dimension=32,
-                    embedding_dimension=64,
+                    embedding_dimension=128,
                     num_heads=8,
-                    mlp_hidden_dimension=256,
+                    mlp_hidden_dimension=512,
                     mlp_dropout=0.2,
                 ),
             ),
-            decoder_block_count=3,
+            decoder_block_count=5,
             decoder_block=DecoderBlockConfig(
-                encoder_embedding_dimension=64,
-                decoder_embedding_dimension=64,
+                encoder_embedding_dimension=128,
+                decoder_embedding_dimension=128,
 
                 self_attention_kq_dimension=32,
                 self_attention_v_dimension=32,
@@ -53,13 +51,13 @@ DEFAULT_MODEL_PARAMETERS = {
                 cross_attention_v_dimension=32,
                 cross_attention_heads=8,
 
-                mlp_hidden_dimension=256,
+                mlp_hidden_dimension=512,
                 mlp_dropout=0.2,
             ),
         ),
         "model_trainer": DigitSequenceModelTrainer,
         "training": DigitSequenceModelTrainingConfig(
-            batch_size=64, # 256 took too much GPU memory
+            batch_size=256, # 256 took too much GPU memory
             epochs=100,
             learning_rate=0.00015,
             optimizer="adamw",
