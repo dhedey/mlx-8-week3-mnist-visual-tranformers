@@ -145,8 +145,10 @@ class ModelBase(nn.Module):
         model_name: str,
         override_class_name = None,
         device: Optional[str] = None,
+        model_path: Optional[str] = None,
     ) -> tuple[Self, TrainingState, TrainingConfig]:
-        model_path = ModelBase._model_path(model_name)
+        if model_path is None:
+            model_path = ModelBase._model_path(model_name)
         if device is None:
             device = select_device()
 
@@ -241,8 +243,8 @@ class ModelTrainerBase:
             self.latest_validation_results = None
 
     @classmethod
-    def load_with_model(cls, model_name: str, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None) -> Self:
-        model, state, config = ModelBase.load(model_name=model_name, device=device)
+    def load_with_model(cls, model_name: str, overrides: Optional[TrainerOverrides] = None, device: Optional[str] = None, model_path: Optional[str] = None) -> Self:
+        model, state, config = ModelBase.load(model_name=model_name, device=device, model_path=model_path)
         return cls.load(
             model=model,
             config=config,
