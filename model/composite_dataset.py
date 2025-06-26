@@ -187,62 +187,6 @@ class CompositeDataset(Dataset):
         except Exception as e:
             print(f"⚠️ Failed to save to local cache: {e}")
     
-    def _upload_to_wandb(self, canvases: list, sequences: list) -> None:
-        """Upload dataset to wandb as an artifact."""
-        artifact_name = self._get_wandb_artifact_name()
-        
-        print(f"📤 Uploading dataset to wandb as artifact: {artifact_name}")
-        
-        try:
-            # Save to temporary file for upload
-            temp_path = self.local_cache_path + ".temp"
-            data = {'canvases': canvases, 'sequences': sequences}
-            with open(temp_path, 'wb') as f:
-                pickle.dump(data, f)
-            
-            # Initialize wandb run if not already active
-            if wandb.run is None:
-                wandb.init(
-                    project=WANDB_PROJECT_NAME,
-                    entity=WANDB_ENTITY,
-                    job_type="dataset-upload",
-                    name=f"upload-{artifact_name}",
-                    tags=["dataset", "composite", "mnist"]
-                )
-                should_finish_run = True
-            else:
-                should_finish_run = False
-            
-            # Create and upload artifact
-            artifact = wandb.Artifact(
-                name=artifact_name,
-                type="dataset",
-                description=f"Composite MNIST dataset with {self.length} samples, {self.min_digits}-{self.max_digits} digits, canvas {self.canvas_size}",
-                metadata={
-                    "length": self.length,
-                    "min_digits": self.min_digits,
-                    "max_digits": self.max_digits,
-                    "canvas_size": self.canvas_size,
-                    "digit_size": self.digit_size,
-                    "train": hasattr(self.dataset, 'train') and self.dataset.train,
-                    "cache_key": self.cache_key
-                }
-            )
-            
-            artifact.add_file(temp_path, name=f"composite_dataset_{self.cache_key}.pkl")
-            wandb.log_artifact(artifact)
-            
-            print(f"✅ Successfully uploaded dataset to wandb")
-            
-            # Clean up temp file
-            os.remove(temp_path)
-            
-            if should_finish_run:
-                wandb.finish()
-                
-        except Exception as e:
-            print(f"⚠️ Failed to upload to wandb: {e}")
-    
     def _generate_dataset(self) -> tuple[list, list]:
         """Generate a new dataset from scratch."""
         print(f"🔄 Generating new composite dataset with {self.length} samples... this may take a while.")
@@ -282,9 +226,6 @@ class CompositeDataset(Dataset):
         
         # Save to local cache
         self._save_to_local_cache(canvases, sequences)
-        
-        # Upload to wandb for sharing
-        self._upload_to_wandb(canvases, sequences)
         
         return canvases, sequences
 
