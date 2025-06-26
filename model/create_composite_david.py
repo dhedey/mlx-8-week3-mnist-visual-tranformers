@@ -15,74 +15,134 @@ import math
 import os
 from typing import Optional
 import time
-from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
+from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults, select_device
 from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
 from .models import SingleDigitModel, DigitSequenceModel
 
+# class DavidCombine(torch.utils.data.Dataset):
+#     def __init__(
+#         self,
+#         train: bool,
+#         output_width: int = 128,
+#         output_height: int = 128,
+#         output_batch_size: int = 1,
+#         batches_per_epoch: int = 10,
+#         line_height_min: int = 16,
+#         line_height_max: int = 64,
+#         line_spacing_min: int = -2,
+#         line_spacing_max: int = 12,
+#         horizontal_padding_min: int = -2,
+#         horizontal_padding_max: int = 128,
+#         first_line_offset: int = 2,
+#         image_scaling_min: float = 0.7,
+#         padding_token_id: int = -1,
+#         start_token_id: int = 10,
+#         end_token_id: int = 10,
+#         max_sequence_length: int = 32,
+#     ):
+#         self.train = train
+#         self.output_width = output_width
+#         self.output_height = output_height
+#         self.output_batch_size = output_batch_size
+#         self.batches_per_epoch = batches_per_epoch
+#         self.line_height_min = line_height_min
+#         self.line_height_max = line_height_max
+#         self.line_spacing_min = line_spacing_min
+#         self.line_spacing_max = line_spacing_max
+#         self.horizontal_padding_min = horizontal_padding_min
+#         self.horizontal_padding_max = horizontal_padding_max
+#         self.first_line_offset = first_line_offset
+#         self.image_scaling_min = image_scaling_min
+#         self.padding_token_id = padding_token_id
+#         self.start_token_id = start_token_id
+#         self.end_token_id = end_token_id
+#         self.max_sequence_length = max_sequence_length
+#
+#     def __len__(self):
+#         return self.output_batch_size * self.batches_per_epoch
+#
+#     def __getitem__(self, idx):
+
+class IterableWithLength:
+    def __init__(self, iterable, length):
+        self.iterable = iterable
+        self.length = length
+
+    def __iter__(self):
+        return iter(self.iterable)
+
+    def __len__(self):
+        return self.length
+
 def composite_image_generator_david(
-        device: str,
-        image_dataset: datasets.Dataset,
-        output_width: int = 128,
-        output_height: int = 128,
-        output_batch_size: int = 1,
-        batches_per_epoch: int = 10,
-        line_height_min: int = 16,
-        line_height_max: int = 64,
-        line_spacing_min: int = -2,
-        line_spacing_max: int = 12,
-        horizontal_padding_min: int = -2,
-        horizontal_padding_max: int = 128,
-        first_line_offset: int = 2,
-        image_scaling_min: float = 0.7,
-        start_token_id = 10,
-        end_token_id = 11,
-        max_labels_per_image: int = 32,
-    ):
-    pin_memory = device == 'cuda'
-    
+    image_dataset: datasets.Dataset,
+    output_width: int = 128,
+    output_height: int = 128,
+    output_batch_size: int = 1,
+    batches_per_epoch: int = 10,
+    line_height_min: int = 16,
+    line_height_max: int = 64,
+    line_spacing_min: int = -2,
+    line_spacing_max: int = 12,
+    horizontal_padding_min: int = -2,
+    horizontal_padding_max: int = 128,
+    first_line_offset: int = 2,
+    left_margin_offset: int = 2,
+    image_scaling_min: float = 0.7,
+    padding_token_id: int = -1,
+    start_token_id: int = 10,
+    end_token_id: int = 10,
+    max_sequence_length: int = 32,
+):
     image_loader = DataLoader(
         image_dataset,
         batch_size=128,
         shuffle=True,
         num_workers=2,
-        pin_memory=pin_memory,  # Speed up CUDA
+        pin_memory=select_device() == "cuda",  # Speed up CUDA
     )
 
     def loop_image_forever(batched_image_iterator):
         while True:
             for raw_batch in batched_image_iterator:
                 images, labels = raw_batch
-                images = images.to(device)
-                labels = labels.to(device)
                 for image, label in zip(images, labels):
-                    yield image, label 
+                    yield image, label
             
     infinite_labelled_images = loop_image_forever(image_loader).__iter__()
 
-    rand_generator = torch.Generator(device="cpu")
-
-    def randint(min_value, max_value_inclusive):
-        nonlocal rand_generator
-        return torch.randint(min_value, max_value_inclusive + 1, (1,), generator=rand_generator).item()
+    pre_generated = torch.rand((10000,))
+    pre_generated_index = 0
     
     def rand():
-        nonlocal rand_generator
-        return torch.rand((1,), generator=rand_generator).item()
-    
+        nonlocal pre_generated, pre_generated_index
+        if pre_generated_index >= len(pre_generated):
+            pre_generated = torch.rand((10000,))
+            pre_generated_index = 0
+        value = pre_generated[pre_generated_index]
+        pre_generated_index += 1
+        return value.item()
+
+    def randint(min_value, max_value_inclusive):
+        return math.floor(rand() * (max_value_inclusive + 1 - min_value)) + min_value
+
     def rand_biaseddown():
         return (math.exp(rand() * 2) - 1)/(math.exp(2) - 1)
     
-    def randint_biaseddown(min_value, max_value):
-        return math.floor(rand_biaseddown() * (max_value + 1 - min_value)) + min_value
+    def randint_biaseddown(min_value, max_value_inclusive):
+        return math.floor(rand_biaseddown() * (max_value_inclusive + 1 - min_value)) + min_value
     
     for batch_index in range(batches_per_epoch):
-        composite_images = torch.zeros((output_batch_size, 1, output_height, output_width), device=device)
-        composite_labels = torch.zeros((output_batch_size, max_labels_per_image), dtype=torch.int64, device=device)
+        composite_images = torch.zeros((output_batch_size, 1, output_height, output_width), dtype=torch.float32)
+        in_labels = torch.zeros((output_batch_size, max_sequence_length), dtype=torch.int64)
+        out_labels = torch.zeros((output_batch_size, max_sequence_length), dtype=torch.int64)
 
         for composite_in_batch_index in range(output_batch_size):
             line_offset = first_line_offset
             image_in_composite_index = 0
             allow_more_images = True
+
+            in_labels[composite_in_batch_index, 0] = start_token_id
 
             # Generate lines
             while allow_more_images:
@@ -94,7 +154,7 @@ def composite_image_generator_david(
                 if line_end_offset > output_height:
                     break
 
-                horizontal_offset = 0
+                horizontal_offset = left_margin_offset
                 while allow_more_images:
                     horizontal_padding = randint_biaseddown(horizontal_padding_min, horizontal_padding_max)
                     horizontal_offset += horizontal_padding
@@ -118,19 +178,28 @@ def composite_image_generator_david(
                         0:1,
                         image_vertical_start_offset:image_vertical_end_offset,
                         horizontal_offset:horizontal_end_offset
-                    ] += image.to(device)
-                    composite_labels[composite_in_batch_index, image_in_composite_index] = label
+                    ] += image
+                    in_labels[composite_in_batch_index, image_in_composite_index + 1] = label
+                    out_labels[composite_in_batch_index, image_in_composite_index] = label
                     image_in_composite_index += 1
 
                     horizontal_offset += image_size
 
-                    if image_in_composite_index == max_labels_per_image - 1:
+                    if image_in_composite_index == max_sequence_length - 1:
                         allow_more_images = False
 
                 line_offset += line_height
-            composite_labels[composite_in_batch_index, image_in_composite_index] = end_token_id
-            
-        yield composite_images, composite_labels
+
+            out_labels[composite_in_batch_index, image_in_composite_index] = end_token_id
+
+            image_in_composite_index += 1
+
+            while image_in_composite_index < max_sequence_length:
+                in_labels[composite_in_batch_index, image_in_composite_index] = padding_token_id
+                out_labels[composite_in_batch_index, image_in_composite_index] = padding_token_id
+                image_in_composite_index += 1
+                
+        yield composite_images, in_labels, out_labels
 
 if __name__ == "__main__":
     training_transform = v2.Compose([

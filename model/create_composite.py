@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import argparse
 
 
-def load_mnist_dataset():
+def load_mnist_dataset(train=True):
     """Load the MNIST dataset."""
     transform = v2.Compose([
         v2.ToImage(),
@@ -21,7 +21,7 @@ def load_mnist_dataset():
         data_folder,
         download=True,
         transform=transform,
-        train=True,
+        train=train,
     )
     return dataset
 
