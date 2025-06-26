@@ -61,7 +61,7 @@ class TrainingConfig(PersistableData):
 
 class ValidationResults(PersistableData, extra="allow"):
     epoch: int
-    average_training_loss: float
+    average_training_loss: float = 0.0 # Default to 0.0 to support backwards compatibility
     """
     The average training loss is a measure of how well the model performs on the validation set, in comparison to the training set.
     IMPORTANT: This must be comparable to the training loss, to act as a measure of overfitting.
@@ -438,9 +438,9 @@ class ModelTrainerBase:
                             if key == "epoch":
                                 continue
                             if key.startswith(prefix):
-                                data[f"{prefix}_{key}"] = value
+                                data[f"{prefix}{key}"] = value
                             else:
-                                data[f"{prefix}_{key}"] = value
+                                data[f"{prefix}{key}"] = value
                     add_prefixed(log_data, self.latest_validation_results.to_dict(), "validation_")
                     add_prefixed(log_data, self.latest_training_results.to_dict(), "train_")
     
