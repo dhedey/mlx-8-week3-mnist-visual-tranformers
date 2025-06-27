@@ -18,8 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from model.inference import get_data_info, select_model, predict_sequence
 from model.models import DigitSequenceModel
 from model.common import select_device
-from model.composite_dataset import BesCombine, CompositeDataset
-from model.create_composite_david import composite_image_generator_david
+from model.composite_dataset import BesCombine, CompositeDataset, DavidCompositeDataset
 
 
 st.set_page_config(page_title="Overlord's Vision", page_icon="👀")
@@ -50,20 +49,6 @@ def load_model(model_name_key):
     model_path = select_model(model_name_key)["model_path"]
     model = DigitSequenceModel.load_for_evaluation(model_path=model_path, device=device)
     return model
-
-def create_tick_marks_image(height, h_patches):
-    """Creates a small image with tick marks for grid alignment."""
-    width = 30  # A narrow strip for the ticks
-    img = Image.new("RGB", (width, height), "black")
-    draw = ImageDraw.Draw(img)
-    
-    cell_height = height / h_patches
-    
-    for i in range(1, h_patches):
-        y = i * cell_height
-        draw.line([(0, y), (width, y)], fill="white", width=1)
-        
-    return img
 
 def create_horizontal_tick_marks_image(width, w_patches):
     """Creates a small image with horizontal tick marks for grid alignment."""
@@ -100,7 +85,7 @@ def create_image_generator(_model, _data_info):
         ])
         mnist_ds = torchvision.datasets.MNIST(data_folder, download=True, transform=transform, train=False)
         
-        david_generator = composite_image_generator_david(
+        david_generator = DavidCompositeDataset(
             image_dataset=mnist_ds,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
@@ -152,12 +137,18 @@ st.write(f"Draw a digit sequence. The model expects an image of size {image_size
 canvas_height = 560
 canvas_width = 560
 
+# Adjust stroke width based on the selected model
+if model_key == "best4by4_var":
+    stroke_width = 10
+else:
+    stroke_width = 20
+
 main_col, right_col = st.columns([10, 1])
 
 with main_col:
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.3)",
-        stroke_width=20,
+        stroke_width=stroke_width,
         stroke_color="#FFFFFF",
         background_color="#000000",
         update_streamlit=True,
@@ -166,10 +157,58 @@ with main_col:
         drawing_mode="freedraw",
         key="canvas",
     )
-    # tick mark images removed; grid overlay handles guidance
+    if data_info["type"] == "bes":
+        # JavaScript overlay grid aligned precisely on the canvas
+        cell_h = canvas_height // data_info["h_patches"]
+        cell_w = canvas_width  // data_info["w_patches"]
+        grid_uid = f"grid-{model_key}" # Unique ID for the grid
+
+        components.html(f"""
+            <script>
+                function refreshGrid() {{
+                    // Remove all existing grid overlays
+                    window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
+
+                    const wrapper = window.parent.document.querySelector('div.element-container iframe')?.parentElement;
+                    if (!wrapper) return;
+
+                    wrapper.style.position = 'relative';
+                    const grid = document.createElement('div');
+                    grid.id = '{grid_uid}';
+                    grid.style.position = 'absolute';
+                    grid.style.top = '0';
+                    grid.style.left = '0';
+                    grid.style.width = '{canvas_width}px';
+                    grid.style.height = '{canvas_height}px';
+                    grid.style.pointerEvents = 'none';
+                    grid.style.backgroundImage =
+                      'linear-gradient(to right, rgba(255,255,255,0.4) 2px, transparent 2px),' +
+                      'linear-gradient(to bottom, rgba(255,255,255,0.4) 2px, transparent 2px)';
+                    grid.style.backgroundSize = '{cell_w}px {cell_h}px';
+                    wrapper.appendChild(grid);
+                }}
+                // Use a timeout to run after the DOM has updated
+                setTimeout(refreshGrid, 50);
+            </script>
+            """,
+            height=0
+        )
+    else:
+        # If model is not grid-based, ensure no grids are shown
+        components.html("""
+            <script>
+                function cleanupGrid() {{
+                    window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
+                }}
+                setTimeout(cleanupGrid, 50);
+            </script>
+            """,
+            height=0
+        )
 
 with right_col:
-    pass  # tick mark sidebar removed
+    # No vertical tick marks requested – leave this column empty for BES models
+    pass
 
 # --- Prediction Logic ---
 predict_col, example_col = st.columns(2)
