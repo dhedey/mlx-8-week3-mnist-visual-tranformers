@@ -9,6 +9,7 @@ import os
 import torchvision
 import torchvision.transforms.v2 as v2
 import einops
+import time
 from uuid import uuid4
 import streamlit.components.v1 as components
 
@@ -28,7 +29,7 @@ st.write("A multi-digit MNIST sequence predictor.")
 
 # Invert the display_names dictionary to map display names back to keys
 display_names = {
-    "scrambled-v2": "Scrambled",
+    "scrambled-v2": "Shuffletastic",
     "best4by4_var": "4 x 4 on-grid",
     "best2by2": "2 x 2 on-grid (fixed length)",
 }
@@ -40,7 +41,7 @@ mode_col, model_select_col = st.columns([5, 5])
 with mode_col:
     mode = st.selectbox(
         "Choose a mode:",
-        options=["Draw", "Generate", "Game"],
+        options=["Generate", "Draw", "Game"],
         index=0,
     )
 with model_select_col:
@@ -128,26 +129,26 @@ def create_image_generator(_model, _data_info):
         st.error(f"Example generation not supported for type: {data_type}")
         return None
 
-def get_next_example_image(model_key, model, data_info):
+def get_next_example_image(model_key, model, data_info) -> torch.Tensor:
     """Gets the next image from a cached generator, creating one if needed."""
     if 'image_generator' not in st.session_state or st.session_state.get('model_key') != model_key:
         st.session_state.image_generator = create_image_generator(model, data_info)
         st.session_state.model_key = model_key
 
     generator = st.session_state.image_generator
-    if generator is None:
-        return None
         
     try:
         data_type = data_info["type"]
         if data_type == "bes":
-            example_image_tensor, _ = next(generator)
+            example_image_tensor, labels = next(generator)
         elif data_type == "david" or data_type == "david-v2":
-            img_batch, _, _ = next(generator)
+            img_batch, labels, _ = next(generator)
             example_image_tensor = img_batch[0]
         else:
-            return None
-        return example_image_tensor
+            raise ValueError(f"Unsupported data type for example generation: {data_type}")
+        
+        labels = [label.item() for label in labels if label.item() >= 0 and label.item() <= 9]
+        return example_image_tensor, labels
     except StopIteration:
         # st.warning("Image generator exhausted. Re-initializing...")
         # Clear the old generator and recursively call to get a new one
@@ -293,7 +294,7 @@ if mode == "Draw":
                 # st.image(resized_img, use_container_width=True)
                 predicted_tokens = predict_sequence(model, img_tensor)
                 seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
-                st.success(f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**")
+                st.warning(f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**")
                     
         else:
             st.warning("Please draw something on the canvas before predicting.")
@@ -302,22 +303,130 @@ elif mode == "Generate":
     main_col, prediction_col = st.columns([6, 4])
     with st.spinner("Generating example and predicting..."):
         with main_col:
-            example_image_tensor = get_next_example_image(model_key, model, data_info)
+            example_image_tensor, actual_labels = get_next_example_image(model_key, model, data_info)
             
-            if example_image_tensor is not None:
-                device = select_device()
-                example_image_tensor = example_image_tensor.to(device)
-                
-                if example_image_tensor.dim() == 3:
-                    example_image_tensor = example_image_tensor.unsqueeze(0)
+            device = select_device()
+            example_image_tensor = example_image_tensor.to(device)
+            
+            if example_image_tensor.dim() == 3:
+                example_image_tensor = example_image_tensor.unsqueeze(0)
 
-                st.image(example_image_tensor.cpu().squeeze().numpy(), caption="Example Image", use_container_width=True, clamp=True)
+            st.image(example_image_tensor.cpu().squeeze().numpy(), caption="Example Image", use_container_width=True, clamp=True)
                 
         with prediction_col:
             if example_image_tensor is not None:
 
+                actual_seq_str = "".join((str(int(x)) if x < 10 else "") for x in actual_labels)
+
                 predicted_tokens = predict_sequence(model, example_image_tensor)
+
                 seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
-                st.success(f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**")
+                text = f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**\n\nActual sequence:\n\n**{actual_seq_str}**"
+                if seq_str == actual_seq_str:
+                    st.success(text)
+                else:
+                    st.error(text)
 
             st.button("Regenerate...")
+
+elif mode == "Game":
+    if 'user_correct' not in st.session_state:
+        st.session_state['user_correct'] = 0
+    if 'ai_correct' not in st.session_state:
+        st.session_state['ai_correct'] = 0
+    if 'attempts' not in st.session_state:
+        st.session_state['attempts'] = 0
+
+    user_correct = st.session_state.get('user_correct', 0)
+    ai_correct = st.session_state.get('ai_correct', 0)
+    attempts = st.session_state.get('attempts', 0)
+    round_state = st.session_state.get('round_state', "start")
+
+    st.write(f"**User Correct:** {user_correct} | **AI Correct:** {ai_correct} | **Attempts:** {attempts}")
+
+    next_round = st.button("Next Round", key="next_round")
+
+    if next_round:
+        match round_state:
+            case "start":
+                round_state = "see"
+            case "see":
+                round_state = "guess"
+            case "guess":
+                round_state = "round_result"
+            case "round_result":
+                round_state = "start"
+        st.session_state['round_state'] = round_state
+
+    match round_state:
+        case "start":
+            example_image_tensor, actual_labels = get_next_example_image(model_key, model, data_info)
+            actual_labels = "".join((str(int(x)) if x < 10 else "") for x in actual_labels)
+            if example_image_tensor.dim() == 3:
+                example_image_tensor = example_image_tensor.unsqueeze(0)
+
+            start_time = time.time()
+            predicted_tokens = predict_sequence(model, example_image_tensor)
+            ai_labels = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
+            prediction_time = time.time() - start_time
+            
+            st.session_state['image'] = example_image_tensor
+            st.session_state['ai_labels'] = ai_labels
+            st.session_state['actual_labels'] = actual_labels
+            st.session_state['prediction_time'] = prediction_time
+            st.session_state['user_time_ms'] = prediction_time * 2 * 1000
+
+            st.write(f"The AI predicted this round in {prediction_time * 1000:0.0f} ms.")
+            st.write(f"You will be given {st.session_state['user_time_ms']:0.0f} ms.")
+            st.write("Press 'Next Round' to start the next round.")
+        case "see":
+            col, _ = st.columns([5, 5])
+            with col:
+                st.image(
+                    st.session_state['image'].cpu().squeeze().numpy(),
+                    caption="Example Image",
+                    use_container_width=True,
+                    clamp=True,
+                )
+
+                components.html("""
+                    <script>
+                        function complete_game() {{
+                            window.parent.document.querySelectorAll('.st-key-next_round button').forEach(el => el.click());
+                        }}
+                        setTimeout(complete_game, """ + str(st.session_state['user_time_ms']) + """);
+                    </script>
+                    """,
+                    height=0
+                )
+        case "guess":
+            data = st.text_input(
+                "Enter your guess (sequence of digits, e.g. '1234'):",
+                key="user_guess",
+                placeholder="Type your guess here...",
+            )
+            st.session_state['user_labels'] = data
+            st.write("Press 'Next Round' to submit your guess.")
+        case "round_result":
+            st.write("Round Results:")
+            user_correct = st.session_state['user_labels'] == st.session_state['actual_labels']
+            ai_correct = st.session_state['ai_labels'] == st.session_state['actual_labels']
+            st.warning(f"**Actual Sequence:** {st.session_state['actual_labels']}")
+
+            st.session_state['attempts'] += 1
+            if user_correct:
+                st.success(f"**Your Guess:** {st.session_state['user_labels']}")
+                st.session_state['user_correct'] += 1
+            else:
+                st.error(f"**Your Guess:** {st.session_state['user_labels']}")
+
+            if ai_correct:
+                st.success(f"**AI's Guess:** {st.session_state['ai_labels']}")
+                st.session_state['ai_correct'] += 1
+            else:
+                st.error(f"**AI's Guess:** {st.session_state['ai_labels']}")
+
+            st.write("Press 'Next Round' to continue.")
+
+        
+
