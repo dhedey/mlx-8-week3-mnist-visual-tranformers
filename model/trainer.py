@@ -18,7 +18,7 @@ import time
 
 from model.create_composite_david import IterableWithLength, composite_image_generator_david
 from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
-from .composite_dataset import CompositeDataset, sequence_collate_fn, BesCombine
+from .composite_dataset import CompositeDataset, DavidCompositeDataset, sequence_collate_fn, BesCombine
 from .models import SingleDigitModel, DigitSequenceModel
 
 class SingleDigitModelTrainingConfig(TrainingConfig):
@@ -220,34 +220,17 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
                     )
                     collate_fn = dataset.collate_fn
                 case "david":
-                    data_folder = os.path.join(os.path.dirname(__file__), "datasets")
-                    digit_dataset = torchvision.datasets.MNIST(
-                        data_folder,
-                        download=True,
-                        transform=v2.Compose([
-                            v2.ToImage(),
-                            v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
-                            v2.RandomResize(28, 40),
-                            v2.RandomRotation(25),
-                            v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
-                        ]),
+                    dataset = DavidCompositeDataset(
                         train=train,
-                    )
-                    # This is effectively a data loader all in one
-                    output_batch_size = self.config.batch_size
-                    batches_per_epoch =size // output_batch_size
-                    generator = composite_image_generator_david(
-                        image_dataset=digit_dataset,
+                        length=size,
                         output_width=self.model.config.encoder.image_width,
                         output_height=self.model.config.encoder.image_height,
-                        output_batch_size=output_batch_size,
-                        batches_per_epoch=batches_per_epoch,
                         padding_token_id=pad_token_id,
                         start_token_id=start_token_id,
                         end_token_id=stop_token_id,
                         max_sequence_length=self.model.config.max_sequence_length,
                     )
-                    return (output_batch_size * batches_per_epoch), IterableWithLength(generator, length=batches_per_epoch)
+                    collate_fn = dataset.collate_fn
                 case _:
                     raise ValueError(f"Unknown dataset kind: {kind}")
                 

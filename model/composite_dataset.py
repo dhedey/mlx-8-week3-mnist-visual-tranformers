@@ -1,15 +1,18 @@
+from model.common import select_device
 from .create_composite import get_composite_image_and_sequence, load_mnist_dataset
 from torch.utils.data import Dataset
 import torch
 import torchvision
 import numpy as np
 import os
+import math
 import time
 import einops
 from tqdm import tqdm
 import hashlib
 import pickle
 import wandb
+from torchvision.transforms import v2
 from .wandb_config import WANDB_ENTITY, WANDB_PROJECT_NAME
 
 class BesCombine(Dataset):
@@ -278,3 +281,332 @@ def sequence_collate_fn(batch, max_seq_length = 10, pad_token_id=-1, start_token
     output_sequences = torch.stack(output_sequences)
 
     return images, input_sequences, output_sequences
+
+
+class DavidCompositeDataset(Dataset):
+    def __init__(
+            self,
+            train: bool = True,
+            length: int = 10000,
+            output_width: int = 128,
+            output_height: int = 128,
+            line_height_min: int = 16,
+            line_height_max: int = 64,
+            line_spacing_min: int = -2,
+            line_spacing_max: int = 12,
+            horizontal_padding_min: int = -2,
+            horizontal_padding_max: int = 128,
+            left_margin_offset: int = 2,
+            first_line_offset: int = 2,
+            image_scaling_min: float = 0.7,
+            padding_token_id: int = -1,
+            start_token_id: int = 10,
+            end_token_id: int = 10,
+            max_sequence_length: int = 32,
+        ):
+        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+        self.digit_dataset = torchvision.datasets.MNIST(
+            data_folder,
+            download=True,
+            transform=v2.Compose([
+                v2.ToImage(),
+                v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+                v2.RandomResize(28, 40),
+                v2.RandomRotation(25),
+            ]),
+            train=train,
+        )
+        self.digit_size = 40
+
+        self.digit_data_loader = torch.utils.data.DataLoader(
+            self.digit_dataset,
+            batch_size=128,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=select_device() == "cuda",  # Speed up CUDA
+        )
+
+        def loop_image_forever(batched_image_iterator):
+            while True:
+                for raw_batch in batched_image_iterator:
+                    images, labels = raw_batch
+                    for image, label in zip(images, labels):
+                        yield image, label
+
+        self.infinite_labelled_images = loop_image_forever(self.digit_data_loader).__iter__()
+
+        self.length = length
+
+        if horizontal_padding_min + left_margin_offset < 0:
+            raise ValueError("horizontal_padding_min + left_margin_offset must be >= 0")
+        if line_spacing_min + first_line_offset < 0:
+            raise ValueError("line_spacing_min + first_line_offset must be >= 0")
+
+        self.output_width = output_width
+        self.output_height = output_height
+        self.line_height_min = line_height_min
+        self.line_height_max = line_height_max
+        self.line_spacing_min = line_spacing_min
+        self.line_spacing_max = line_spacing_max
+        self.horizontal_padding_min = horizontal_padding_min
+        self.horizontal_padding_max = horizontal_padding_max
+        self.first_line_offset = first_line_offset
+        self.left_margin_offset = left_margin_offset
+        self.image_scaling_min = image_scaling_min
+        self.padding_token_id = padding_token_id
+        self.start_token_id = start_token_id
+        self.end_token_id = end_token_id
+        self.max_sequence_length = max_sequence_length
+
+        # Generate cache key based on parameters
+        self.cache_key = self._generate_cache_key()
+        self.local_cache_path = self._get_local_cache_path()
+
+        self.pre_generated_random = torch.rand((10000,))
+        self.pre_generated_random_index = 0
+        
+        # Try to load from cache using three-tier strategy
+        data = self._load_or_create_dataset()
+        self.canvases = data['canvases']
+        self.in_labels = data['in_labels']
+        self.out_labels = data['out_labels']
+
+    def rand(self):
+        if self.pre_generated_index >= len(self.pre_generated):
+            self.pre_generated = torch.rand((10000,))
+            self.pre_generated_index = 0
+        value = self.pre_generated[self.pre_generated_index]
+        self.pre_generated_index += 1
+        return value
+    
+    def randint(self, min_value, max_value_inclusive):
+        return math.floor(self.rand() * (max_value_inclusive + 1 - min_value)) + min_value
+
+    def rand_biaseddown(self):
+        return (math.exp(self.rand() * 2) - 1)/(math.exp(2) - 1)
+    
+    def randint_biaseddown(self, min_value, max_value_inclusive):
+        return math.floor(self.rand_biaseddown() * (max_value_inclusive + 1 - min_value)) + min_value
+
+    def _generate_cache_key(self) -> str:
+        """Generate a unique cache key based on dataset parameters."""
+        params = {
+            'train': hasattr(self.digit_dataset, 'train') and self.digit_dataset.train,
+            'length': self.length,
+            'output_width': self.output_width,
+            'output_height': self.output_height,
+            'line_height_min': self.line_height_min,
+            'line_height_max': self.line_height_max,
+            'line_spacing_min': self.line_spacing_min,
+            'line_spacing_max': self.line_spacing_max,
+            'horizontal_padding_min': self.horizontal_padding_min,
+            'horizontal_padding_max': self.horizontal_padding_max,
+            'first_line_offset': self.first_line_offset,
+            'image_scaling_min': self.image_scaling_min,
+            'padding_token_id': self.padding_token_id,
+            'start_token_id': self.start_token_id,
+            'end_token_id': self.end_token_id,
+            'max_sequence_length': self.max_sequence_length,
+        }
+
+        # Create hash from parameters
+        param_str = str(sorted(params.items()))
+        return hashlib.md5(param_str.encode()).hexdigest()[:12]
+    
+    def _get_local_cache_path(self) -> str:
+        """Get the local cache file path."""
+        cache_dir = os.path.join(os.path.dirname(__file__), "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, f"composite_dataset_david_{self.cache_key}.pkl")
+    
+    def _get_wandb_artifact_name(self) -> str:
+        """Get the wandb artifact name for this dataset."""
+        train_suffix = "train" if (hasattr(self.digit_dataset, 'train') and self.digit_dataset.train) else "test"
+        return f"composite-dataset-david-{train_suffix}-{self.cache_key}"
+    
+    def _load_from_local_cache(self) -> dict:
+        """Try to load dataset from local cache."""
+        if os.path.exists(self.local_cache_path):
+            print(f"📁 Loading dataset from local cache: {self.local_cache_path}")
+            try:
+                with open(self.local_cache_path, 'rb') as f:
+                    data = pickle.load(f)
+                    if len(data['canvases']) == self.length:
+                        print(f"✅ Successfully loaded {len(data['canvases'])} samples from local cache")
+                        return data
+                    else:
+                        print(f"⚠️ Local cache has {len(data['canvases'])} samples, but need {self.length}. Will regenerate.")
+            except Exception as e:
+                print(f"⚠️ Failed to load from local cache: {e}")
+        return None
+    
+    def _load_from_wandb(self) -> dict:
+        """Try to load dataset from wandb artifact."""
+        artifact_name = self._get_wandb_artifact_name()
+        full_artifact_name = f"{WANDB_ENTITY}/{WANDB_PROJECT_NAME}/{artifact_name}:latest"
+        
+        print(f"🌐 Trying to download dataset from wandb: {full_artifact_name}")
+        
+        try:
+            # Initialize wandb API (doesn't start a run)
+            api = wandb.Api()
+            artifact = api.artifact(full_artifact_name)
+            
+            print(f"📥 Downloading artifact from wandb...")
+            download_dir = artifact.download()
+            
+            # Look for the pickle file in the downloaded directory
+            pickle_files = [f for f in os.listdir(download_dir) if f.endswith('.pkl')]
+            if not pickle_files:
+                print(f"⚠️ No pickle file found in wandb artifact")
+                return None, None
+            
+            pickle_path = os.path.join(download_dir, pickle_files[0])
+            with open(pickle_path, 'rb') as f:
+                data = pickle.load(f)
+                
+            if len(data['canvases']) == self.length:
+                print(f"✅ Successfully loaded {len(data['canvases'])} samples from wandb")
+                
+                # Save to local cache for future use
+                print(f"💾 Saving to local cache for future use...")
+                self._save_to_local_cache(data)
+                
+                return data
+            else:
+                print(f"⚠️ Wandb artifact has {len(data['canvases'])} samples, but need {self.length}. Will regenerate.")
+                
+        except Exception as e:
+            print(f"⚠️ Failed to load from wandb: {e}")
+        
+        return None
+    
+    def _save_to_local_cache(self, data: dict) -> None:
+        """Save dataset to local cache."""
+        try:
+            with open(self.local_cache_path, 'wb') as f:
+                pickle.dump(data, f)
+            print(f"💾 Saved dataset to local cache: {self.local_cache_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to save to local cache: {e}")
+    
+    def _generate_dataset(self) -> dict:
+        """Generate a new dataset from scratch."""
+        print(f"🔄 Generating new composite dataset with {self.length} samples... this may take a while.")
+        
+        canvases = []
+        in_labels = []
+        out_labels = []
+        
+        for _ in tqdm(range(self.length), desc="Generating composite images"):
+            canvas_batch, in_label_batch, out_label_batch = self.generate_composite_batch(16)
+            canvases.extend(canvas for canvas in canvas_batch)
+            in_labels.extend(sequence for sequence in in_label_batch)
+            out_labels.extend(sequence for sequence in out_label_batch)
+        
+        return {
+            "canvases": canvases,
+            "in_labels": in_labels,
+            "out_labels": out_labels,
+        }
+    
+    def generate_composite_batch(self, output_batch_size):
+        composite_images = torch.zeros((output_batch_size, 1, self.output_height, self.output_width), dtype=torch.float32)
+        in_labels = torch.zeros((output_batch_size, self.max_sequence_length), dtype=torch.int32)
+        out_labels = torch.zeros((output_batch_size, self.max_sequence_length), dtype=torch.int32)
+
+        for composite_in_batch_index in range(output_batch_size):
+            line_offset = self.first_line_offset
+            image_in_composite_index = 0
+            allow_more_images = True
+
+            in_labels[composite_in_batch_index, 0] = self.start_token_id
+
+            # Generate lines
+            while allow_more_images:
+                line_spacing = self.randint_biaseddown(self.line_spacing_min, self.line_spacing_max)
+                line_offset += line_spacing
+                line_height = self.randint_biaseddown(self.line_height_min, self.line_height_max)
+
+                line_end_offset = line_offset + line_height
+                if line_end_offset > self.output_height:
+                    break
+
+                horizontal_offset = self.left_margin_offset
+                while allow_more_images:
+                    horizontal_padding = self.randint_biaseddown(self.horizontal_padding_min, self.horizontal_padding_max)
+                    horizontal_offset += horizontal_padding
+
+                    # Fill the line with random images
+                    image_size = self.randint_biaseddown(math.floor(self.image_scaling_min * line_height), line_height)
+
+                    horizontal_end_offset = horizontal_offset + image_size
+                    if horizontal_end_offset > self.output_width:
+                        break
+
+                    digit, label = next(self.infinite_labelled_images)
+                     # NB: image is already rotated and up-scaled!
+                    digit = v2.RandomResizedCrop(size = image_size, scale = (image_size/self.digit_width, image_size/self.digit_width))(digit)
+
+                    image_vertical_start_offset = line_offset + self.randint(0, line_height - image_size)
+                    image_vertical_end_offset = image_vertical_start_offset + image_size
+
+                    composite_images[
+                        composite_in_batch_index,
+                        0:1,
+                        image_vertical_start_offset:image_vertical_end_offset,
+                        horizontal_offset:horizontal_end_offset
+                    ] += digit
+                    in_labels[composite_in_batch_index, image_in_composite_index + 1] = label
+                    out_labels[composite_in_batch_index, image_in_composite_index] = label
+                    image_in_composite_index += 1
+
+                    horizontal_offset += image_size
+
+                    if image_in_composite_index == self.max_sequence_length - 1:
+                        allow_more_images = False
+
+                line_offset += line_height
+
+            out_labels[composite_in_batch_index, image_in_composite_index] = self.end_token_id
+
+            image_in_composite_index += 1
+
+            while image_in_composite_index < self.max_sequence_length:
+                in_labels[composite_in_batch_index, image_in_composite_index] = self.padding_token_id
+                out_labels[composite_in_batch_index, image_in_composite_index] = self.padding_token_id
+                image_in_composite_index += 1
+
+        return composite_images, in_labels, out_labels
+    
+    def _load_or_create_dataset(self) -> dict:
+        """Three-tier loading strategy: local cache -> wandb -> generate new."""
+        
+        # Tier 1: Try local cache
+        data = self._load_from_local_cache()
+        if data is not None:
+            return data
+        
+        # Tier 2: Try wandb
+        data = self._load_from_wandb()
+        if data is not None:
+            return data
+        
+        # Tier 3: Generate new dataset
+        print(f"🆕 No cached version found. Generating new dataset...")
+        data = self._generate_dataset()
+        
+        # Save to local cache
+        self._save_to_local_cache(data)
+        
+        return data
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        return self.canvases[idx], self.in_labels[idx], self.out_labels[idx]
+    
+    def collate_fn(self, batch):
+        images, in_labels, out_labels = batch
+        return torch.cat(images), torch.cat(in_labels), torch.cat(out_labels)
