@@ -163,8 +163,8 @@ class SingleDigitModelTrainer(ModelTrainerBase):
         )
 
 class DigitSequenceModelTrainingConfig(TrainingConfig):
-    training_set_size: float = 60000
-    validation_set_size: float = 10000
+    training_set_size: int = 60000
+    validation_set_size: int = 10000
     probability_of_skip: float = 0.3
     generator_kind: str = "bes"
 

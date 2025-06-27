@@ -72,7 +72,7 @@ class BesCombine(Dataset):
 
 
 class CompositeDataset(Dataset):
-    def __init__(self, train: bool = True, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, dataset = None, length = 100000, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
+    def __init__(self, train: bool = True, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, dataset = None, length: int = 100000, min_digits = 1, max_digits = 5, canvas_size=(256, 256), digit_size=28):
         if dataset is None:
             self.dataset = load_mnist_dataset(train=train)
         else:
