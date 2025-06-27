@@ -35,11 +35,20 @@ display_names = {
 name_to_key = {v: k for k, v in display_names.items()}
 
 # --- Model Selection ---
-model_display_name = st.selectbox(
-    "Choose a model to test:",
-    options=list(name_to_key.keys()),
-    index=0,
-)
+mode_col, model_select_col = st.columns([5, 5])
+
+with mode_col:
+    mode = st.selectbox(
+        "Choose a mode:",
+        options=["Draw", "Generate", "Game"],
+        index=0,
+    )
+with model_select_col:
+    model_display_name = st.selectbox(
+        "Choose a model to test:",
+        options=list(name_to_key.keys()),
+        index=0,
+    )
 model_key = name_to_key[model_display_name]
 
 @st.cache_resource
@@ -89,20 +98,20 @@ def create_image_generator(_model, _data_info):
             image_dataset=mnist_ds,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
-            output_batch_size=1,
+            length=10,
             batches_per_epoch=100, # Create a longer-running generator
             line_height_min=16,
             line_height_max=64,
         )
-        return david_generator
+        return iter(david_generator)
     elif data_type == "david-v2":
         data_folder = os.path.join(os.path.dirname(__file__), "..", "model", "datasets")
         
         david_generator = DavidCompositeDataset(
             train=False,
+            length=10,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
-            output_batch_size=1,
             line_height_min=16,
             line_height_max=30,
             line_spacing_min=2,
@@ -114,7 +123,7 @@ def create_image_generator(_model, _data_info):
             image_scaling_min=0.8,
             max_sequence_length=10,
         )
-        return david_generator
+        return iter(david_generator)
     else:
         st.error(f"Example generation not supported for type: {data_type}")
         return None
@@ -140,7 +149,7 @@ def get_next_example_image(model_key, model, data_info):
             return None
         return example_image_tensor
     except StopIteration:
-        st.warning("Image generator exhausted. Re-initializing...")
+        # st.warning("Image generator exhausted. Re-initializing...")
         # Clear the old generator and recursively call to get a new one
         del st.session_state['image_generator']
         return get_next_example_image(model_key, model, data_info)
@@ -151,168 +160,164 @@ with st.spinner(f"Loading model: {model_display_name}..."):
 data_info = get_data_info(model_key)
 image_size = data_info["image_size"]
 
-# --- Drawable Canvas ---
-st.write(f"Draw a digit sequence. The model expects an image of size {image_size[1]}x{image_size[0]}. Your drawing will be resized.")
 
-canvas_height = 560
-canvas_width = 560
+canvas_height = 400
+canvas_width = 400
 
-# Adjust stroke width based on the selected model
-if model_key == "best4by4_var":
-    stroke_width = 10
-else:
-    stroke_width = 20
+if mode == "Draw":
 
-main_col, right_col = st.columns([10, 1])
+    # --- Drawable Canvas ---
+    st.write(f"Draw a digit sequence. The model expects an image of size {image_size[1]}x{image_size[0]}. Your drawing will be resized.")
 
-with main_col:
-    canvas_result = st_canvas(
-        fill_color="rgba(255, 165, 0, 0.3)",
-        stroke_width=stroke_width,
-        stroke_color="#FFFFFF",
-        background_color="#000000",
-        update_streamlit=True,
-        height=canvas_height,
-        width=canvas_width,
-        drawing_mode="freedraw",
-        key="canvas",
-    )
-    if data_info["type"] == "bes":
-        # JavaScript overlay grid aligned precisely on the canvas
-        cell_h = canvas_height // data_info["h_patches"]
-        cell_w = canvas_width  // data_info["w_patches"]
-        grid_uid = f"grid-{model_key}" # Unique ID for the grid
-
-        components.html(f"""
-            <script>
-                function refreshGrid() {{
-                    // Remove all existing grid overlays
-                    window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
-
-                    const wrapper = window.parent.document.querySelector('div.element-container iframe')?.parentElement;
-                    if (!wrapper) return;
-
-                    wrapper.style.position = 'relative';
-                    const grid = document.createElement('div');
-                    grid.id = '{grid_uid}';
-                    grid.style.position = 'absolute';
-                    grid.style.top = '0';
-                    grid.style.left = '0';
-                    grid.style.width = '{canvas_width}px';
-                    grid.style.height = '{canvas_height}px';
-                    grid.style.pointerEvents = 'none';
-                    grid.style.backgroundImage =
-                      'linear-gradient(to right, rgba(255,255,255,0.4) 2px, transparent 2px),' +
-                      'linear-gradient(to bottom, rgba(255,255,255,0.4) 2px, transparent 2px)';
-                    grid.style.backgroundSize = '{cell_w}px {cell_h}px';
-                    wrapper.appendChild(grid);
-                }}
-                // Use a timeout to run after the DOM has updated
-                setTimeout(refreshGrid, 50);
-            </script>
-            """,
-            height=0
-        )
+    # Adjust stroke width based on the selected model
+    if model_key == "best4by4_var":
+        stroke_width = 5
     else:
-        # If model is not grid-based, ensure no grids are shown
-        components.html("""
-            <script>
-                function cleanupGrid() {{
-                    window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
-                }}
-                setTimeout(cleanupGrid, 50);
-            </script>
-            """,
-            height=0
+        stroke_width = 10
+
+    main_col, prediction_col = st.columns([6, 4])
+
+    with main_col:
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.3)",
+            stroke_width=stroke_width,
+            stroke_color="#FFFFFF",
+            background_color="#000000",
+            update_streamlit=True,
+            height=canvas_height,
+            width=canvas_width,
+            drawing_mode="freedraw",
+            key="canvas",
         )
-
-with right_col:
-    # No vertical tick marks requested – leave this column empty for BES models
-    pass
-
-# --- Prediction Logic ---
-predict_col, example_col = st.columns(2)
-with predict_col:
-    predict_button = st.button("Predict from Drawing", use_container_width=True)
-with example_col:
-    example_button = st.button("Get Example Image", use_container_width=True)
-
-if predict_button:
-    if canvas_result.image_data is not None:
-        img_data = canvas_result.image_data
-        
-        # The user draws in white on a black background. We can use any of the
-        # RGB channels to get a grayscale representation of the drawing.
-        # For example, the red channel (index 0).
-        gray_channel = img_data[:, :, 0]
-
-        # Convert to a PIL Image, which will be in 'L' (grayscale) mode
-        pil_img = Image.fromarray(gray_channel)
-        
-        resized_img = pil_img.resize((image_size[1], image_size[0]), Image.LANCZOS)
-        img_array = np.array(resized_img) / 255.0
-        
-        # Add channel dimension
-        img_tensor = torch.tensor(img_array, dtype=torch.float32).unsqueeze(0)
-
-        # Apply model-specific normalization
         if data_info["type"] == "bes":
-            h_patches = data_info['h_patches']
-            w_patches = data_info['w_patches']
-            patch_size = 28 # MNIST digits are 28x28
+            # JavaScript overlay grid aligned precisely on the canvas
+            cell_h = canvas_height // data_info["h_patches"]
+            cell_w = canvas_width  // data_info["w_patches"]
+            grid_uid = f"grid-{model_key}" # Unique ID for the grid
 
-            # Reshape into patches to apply normalization per-patch, like in training
-            # Shape: (1, H, W) -> (num_patches, 1, 28, 28)
-            patches = einops.rearrange(
-                img_tensor, 'c (h ph) (w pw) -> (h w) c ph pw', 
-                h=h_patches, w=w_patches, ph=patch_size, pw=patch_size
+            components.html(f"""
+                <script>
+                    function refreshGrid() {{
+                        // Remove all existing grid overlays
+                        window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
+
+                        const wrapper = window.parent.document.querySelector('div.element-container iframe')?.parentElement;
+                        if (!wrapper) return;
+
+                        wrapper.style.position = 'relative';
+                        const grid = document.createElement('div');
+                        grid.id = '{grid_uid}';
+                        grid.style.position = 'absolute';
+                        grid.style.top = '0';
+                        grid.style.left = '0';
+                        grid.style.width = '{canvas_width}px';
+                        grid.style.height = '{canvas_height}px';
+                        grid.style.pointerEvents = 'none';
+                        grid.style.backgroundImage =
+                        'linear-gradient(to right, rgba(255,255,255,0.4) 2px, transparent 2px),' +
+                        'linear-gradient(to bottom, rgba(255,255,255,0.4) 2px, transparent 2px)';
+                        grid.style.backgroundSize = '{cell_w}px {cell_h}px';
+                        wrapper.appendChild(grid);
+                    }}
+                    // Use a timeout to run after the DOM has updated
+                    setTimeout(refreshGrid, 50);
+                </script>
+                """,
+                height=0
             )
-            
-            # Normalize each patch
-            normalizer = torchvision.transforms.Normalize((0.1307,), (0.3081,))
-            normalized_patches = normalizer(patches)
-            
-            # Rearrange back to a single image
-            # Shape: (num_patches, 1, 28, 28) -> (1, H, W)
-            img_tensor = einops.rearrange(
-                normalized_patches, '(h w) c ph pw -> c (h ph) (w pw)',
-                h=h_patches, w=w_patches
+        else:
+            # If model is not grid-based, ensure no grids are shown
+            components.html("""
+                <script>
+                    function cleanupGrid() {{
+                        window.parent.document.querySelectorAll('[id^="grid-"]').forEach(el => el.remove());
+                    }}
+                    setTimeout(cleanupGrid, 50);
+                </script>
+                """,
+                height=0
             )
 
-        # Add batch dimension
-        img_tensor = img_tensor.unsqueeze(0)
-        
-        device = select_device()
-        img_tensor = img_tensor.to(device)
-        
-        with st.spinner("Predicting..."):
-            predicted_tokens = predict_sequence(model, img_tensor)
-            seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
-            st.success(f"Predicted sequence: **{seq_str if seq_str else 'No digits detected'}**")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("Your Drawing (Processed):")
-                st.image(pil_img, use_container_width=True)
-            with c2:
-                st.write("Resized for Model:")
-                st.image(resized_img, use_container_width=True)
-    else:
-        st.warning("Please draw something on the canvas before predicting.")
+    # --- Prediction Logic ---
+    with prediction_col:
+        if canvas_result.image_data is not None:
+            img_data = canvas_result.image_data
+            
+            # The user draws in white on a black background. We can use any of the
+            # RGB channels to get a grayscale representation of the drawing.
+            # For example, the red channel (index 0).
+            gray_channel = img_data[:, :, 0]
 
-if example_button:
-    with st.spinner("Generating example and predicting..."):
-        example_image_tensor = get_next_example_image(model_key, model, data_info)
-        
-        if example_image_tensor is not None:
+            # Convert to a PIL Image, which will be in 'L' (grayscale) mode
+            pil_img = Image.fromarray(gray_channel)
+            
+            resized_img = pil_img.resize((image_size[1], image_size[0]), Image.LANCZOS)
+            img_array = np.array(resized_img) / 255.0
+            
+            # Add channel dimension
+            img_tensor = torch.tensor(img_array, dtype=torch.float32).unsqueeze(0)
+
+            # Apply model-specific normalization
+            if data_info["type"] == "bes":
+                h_patches = data_info['h_patches']
+                w_patches = data_info['w_patches']
+                patch_size = 28 # MNIST digits are 28x28
+
+                # Reshape into patches to apply normalization per-patch, like in training
+                # Shape: (1, H, W) -> (num_patches, 1, 28, 28)
+                patches = einops.rearrange(
+                    img_tensor, 'c (h ph) (w pw) -> (h w) c ph pw', 
+                    h=h_patches, w=w_patches, ph=patch_size, pw=patch_size
+                )
+                
+                # Normalize each patch
+                normalizer = torchvision.transforms.Normalize((0.1307,), (0.3081,))
+                normalized_patches = normalizer(patches)
+                
+                # Rearrange back to a single image
+                # Shape: (num_patches, 1, 28, 28) -> (1, H, W)
+                img_tensor = einops.rearrange(
+                    normalized_patches, '(h w) c ph pw -> c (h ph) (w pw)',
+                    h=h_patches, w=w_patches
+                )
+
+            # Add batch dimension
+            img_tensor = img_tensor.unsqueeze(0)
+            
             device = select_device()
-            example_image_tensor = example_image_tensor.to(device)
+            img_tensor = img_tensor.to(device)
             
-            if example_image_tensor.dim() == 3:
-                example_image_tensor = example_image_tensor.unsqueeze(0)
+            with st.spinner("Predicting..."):
+                # st.write("Resized for Model:")
+                # st.image(resized_img, use_container_width=True)
+                predicted_tokens = predict_sequence(model, img_tensor)
+                seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
+                st.success(f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**")
+                    
+        else:
+            st.warning("Please draw something on the canvas before predicting.")
 
-            predicted_tokens = predict_sequence(model, example_image_tensor)
-            seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
-            st.success(f"Predicted sequence: **{seq_str}**")
+elif mode == "Generate":
+    main_col, prediction_col = st.columns([6, 4])
+    with st.spinner("Generating example and predicting..."):
+        with main_col:
+            example_image_tensor = get_next_example_image(model_key, model, data_info)
+            
+            if example_image_tensor is not None:
+                device = select_device()
+                example_image_tensor = example_image_tensor.to(device)
+                
+                if example_image_tensor.dim() == 3:
+                    example_image_tensor = example_image_tensor.unsqueeze(0)
 
-            st.image(example_image_tensor.cpu().squeeze().numpy(), caption="Example Image", use_container_width=True, clamp=True) 
+                st.image(example_image_tensor.cpu().squeeze().numpy(), caption="Example Image", use_container_width=True, clamp=True)
+                
+        with prediction_col:
+            if example_image_tensor is not None:
+
+                predicted_tokens = predict_sequence(model, example_image_tensor)
+                seq_str = "".join((str(int(x)) if x < 10 else "") for x in predicted_tokens)
+                st.success(f"Predicted sequence:\n\n**{seq_str if seq_str else 'No digits detected'}**")
+
+            st.button("Regenerate...")

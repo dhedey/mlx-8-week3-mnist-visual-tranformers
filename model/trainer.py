@@ -237,6 +237,7 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
                     dataset = DavidCompositeDataset(
                         train=train,
                         length=size,
+                        use_cache=overrides.use_dataset_cache,
                         output_height=70,
                         output_width=70,
                         line_height_min=16,

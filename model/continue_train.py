@@ -29,6 +29,14 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
+        '--ignore-dataset-cache',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--seed',
+        type=int,
+    )
+    parser.add_argument(
         '--immediate-validation',
         action='store_true',
         help='Run validation immediately after loading the model'
@@ -95,6 +103,8 @@ if __name__ == "__main__":
         override_to_epoch=args.end_epoch,
         override_learning_rate=args.learning_rate,
         validate_after_epochs=args.validate_after_epochs,
+        seed=args.seed,
+        use_dataset_cache=not args.ignore_dataset_cache,
     )
 
     try:

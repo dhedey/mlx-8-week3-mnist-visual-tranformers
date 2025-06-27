@@ -112,6 +112,8 @@ class TrainerOverrides(PersistableData):
     override_to_epoch: Optional[int] = None
     override_learning_rate: Optional[float] = None
     validate_after_epochs: int = 1
+    seed: int = 42
+    use_dataset_cache: bool = True
 
 class ModelBase(nn.Module):
     registered_types: dict[str, type] = {}
@@ -341,13 +343,14 @@ class ModelTrainerBase:
             continuation: Optional[TrainingState] = None,
             overrides: Optional[TrainerOverrides] = None,
         ):
-        torch.manual_seed(42)
 
         total_params_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Initializing {self.__class__.__name__} for {model.__class__.__name__} named \"{model.model_name}\" (total params = {total_params_count})...")
 
         if overrides is None:
             overrides = TrainerOverrides()
+
+        torch.manual_seed(overrides.seed)
 
         self.model = model
         self.config = config
