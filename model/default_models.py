@@ -60,8 +60,8 @@ DEFAULT_MODEL_PARAMETERS = {
             batch_size=64, # 256 took too much GPU memory
             epochs=20,
             learning_rate=0.00015,
-            training_set_size=6000,
-            validation_set_size=1000,
+            training_set_size=60000,
+            validation_set_size=10000,
             optimizer="adamw",
             generator_kind="david",
         ),

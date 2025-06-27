@@ -182,6 +182,7 @@ class CompositeDataset(Dataset):
     
     def _save_to_local_cache(self, canvases: list, sequences: list) -> None:
         """Save dataset to local cache."""
+        print(f"💾 Saving dataset to local cache: {self.local_cache_path}")
         try:
             data = {'canvases': canvases, 'sequences': sequences}
             with open(self.local_cache_path, 'wb') as f:
@@ -304,44 +305,13 @@ class DavidCompositeDataset(Dataset):
             end_token_id: int = 10,
             max_sequence_length: int = 32,
         ):
-        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
-        self.digit_dataset = torchvision.datasets.MNIST(
-            data_folder,
-            download=True,
-            transform=v2.Compose([
-                v2.ToImage(),
-                v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
-                v2.RandomResize(28, 40),
-                v2.RandomRotation(25),
-                v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
-            ]),
-            train=train,
-        )
-        self.digit_size = 28
-
-        self.digit_data_loader = torch.utils.data.DataLoader(
-            self.digit_dataset,
-            batch_size=128,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=select_device() == "cuda",  # Speed up CUDA
-        )
-
-        def loop_image_forever(batched_image_iterator):
-            while True:
-                for raw_batch in batched_image_iterator:
-                    images, labels = raw_batch
-                    for image, label in zip(images, labels):
-                        yield image, label
-
-        self.infinite_labelled_images = loop_image_forever(self.digit_data_loader).__iter__()
-
-        self.length = length
-
         if horizontal_padding_min + left_margin_offset < 0:
             raise ValueError("horizontal_padding_min + left_margin_offset must be >= 0")
         if line_spacing_min + first_line_offset < 0:
             raise ValueError("line_spacing_min + first_line_offset must be >= 0")
+
+        self.train = train
+        self.length = length
 
         self.output_width = output_width
         self.output_height = output_height
@@ -363,7 +333,7 @@ class DavidCompositeDataset(Dataset):
         self.cache_key = self._generate_cache_key()
         self.local_cache_path = self._get_local_cache_path()
 
-        self.pre_generated_random = torch.rand((10000,))
+        self.pre_generated_random = torch.zeros((0,))
         self.pre_generated_random_index = 0
         
         # Try to load from cache using three-tier strategy
@@ -392,7 +362,7 @@ class DavidCompositeDataset(Dataset):
     def _generate_cache_key(self) -> str:
         """Generate a unique cache key based on dataset parameters."""
         params = {
-            'train': hasattr(self.digit_dataset, 'train') and self.digit_dataset.train,
+            'train': self.train,
             'length': self.length,
             'output_width': self.output_width,
             'output_height': self.output_height,
@@ -423,7 +393,7 @@ class DavidCompositeDataset(Dataset):
     
     def _get_wandb_artifact_name(self) -> str:
         """Get the wandb artifact name for this dataset."""
-        train_suffix = "train" if (hasattr(self.digit_dataset, 'train') and self.digit_dataset.train) else "test"
+        train_suffix = "train" if self.train else "test"
         return f"composite-dataset-david-{train_suffix}-{self.cache_key}"
     
     def _load_from_local_cache(self) -> dict:
@@ -461,7 +431,7 @@ class DavidCompositeDataset(Dataset):
             pickle_files = [f for f in os.listdir(download_dir) if f.endswith('.pkl')]
             if not pickle_files:
                 print(f"⚠️ No pickle file found in wandb artifact")
-                return None, None
+                return None
             
             pickle_path = os.path.join(download_dir, pickle_files[0])
             with open(pickle_path, 'rb') as f:
@@ -485,6 +455,7 @@ class DavidCompositeDataset(Dataset):
     
     def _save_to_local_cache(self, data: dict) -> None:
         """Save dataset to local cache."""
+        print(f"💾 Saving dataset to local cache: {self.local_cache_path}")
         try:
             with open(self.local_cache_path, 'wb') as f:
                 pickle.dump(data, f)
@@ -499,9 +470,40 @@ class DavidCompositeDataset(Dataset):
         canvases = []
         in_labels = []
         out_labels = []
+
+        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+        digit_dataset = torchvision.datasets.MNIST(
+            data_folder,
+            download=True,
+            transform=v2.Compose([
+                v2.ToImage(),
+                v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+                v2.RandomResize(28, 40),
+                v2.RandomRotation(25),
+                v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
+            ]),
+            train=self.train,
+        )
+
+        digit_data_loader = torch.utils.data.DataLoader(
+            digit_dataset,
+            batch_size=128,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=select_device() == "cuda",  # Speed up CUDA
+        )
+
+        def loop_image_forever(batched_image_iterator):
+            while True:
+                for raw_batch in batched_image_iterator:
+                    images, labels = raw_batch
+                    for image, label in zip(images, labels):
+                        yield image, label
+
+        infinite_labelled_images = loop_image_forever(digit_data_loader).__iter__()
         
         for _ in tqdm(range(self.length), desc="Generating composite images"):
-            canvas_batch, in_label_batch, out_label_batch = self.generate_composite_batch(16)
+            canvas_batch, in_label_batch, out_label_batch = self.generate_composite_batch(infinite_labelled_images, 1)
             canvases.extend(canvas for canvas in canvas_batch)
             in_labels.extend(sequence for sequence in in_label_batch)
             out_labels.extend(sequence for sequence in out_label_batch)
@@ -512,7 +514,7 @@ class DavidCompositeDataset(Dataset):
             "out_labels": out_labels,
         }
     
-    def generate_composite_batch(self, output_batch_size):
+    def generate_composite_batch(self, infinite_labelled_images, output_batch_size):
         composite_images = torch.zeros((output_batch_size, 1, self.output_height, self.output_width), dtype=torch.float32)
         in_labels = torch.zeros((output_batch_size, self.max_sequence_length), dtype=torch.int32)
         out_labels = torch.zeros((output_batch_size, self.max_sequence_length), dtype=torch.int32)
@@ -546,7 +548,7 @@ class DavidCompositeDataset(Dataset):
                     if horizontal_end_offset > self.output_width:
                         break
 
-                    digit, label = next(self.infinite_labelled_images)
+                    digit, label = next(infinite_labelled_images)
                      # NB: image is already rotated and up-scaled!
                     digit = v2.Resize(digit_size)(digit)
 
@@ -610,5 +612,12 @@ class DavidCompositeDataset(Dataset):
         return self.canvases[idx], self.in_labels[idx], self.out_labels[idx]
     
     def collate_fn(self, batch):
-        images, in_labels, out_labels = batch
-        return torch.cat(images), torch.cat(in_labels), torch.cat(out_labels)
+        images = []
+        in_labels = []
+        out_labels = []
+        for i, item in enumerate(batch):
+            image, in_label, out_label = item
+            images.append(image)
+            in_labels.append(in_label)
+            out_labels.append(out_label)
+        return torch.stack(images), torch.stack(in_labels), torch.stack(out_labels)
