@@ -21,10 +21,10 @@ DEFAULT_MODEL_PARAMETERS = {
     "multi-digit-scrambled": {
         "model_class": DigitSequenceModel,
         "model": DigitSequenceModelConfig(
-            max_sequence_length=37,
+            max_sequence_length=5 * 5 + 1,
             encoder=ImageEncoderConfig(
-                image_width=28 * 6,
-                image_height=28 * 6,
+                image_width=28 * 5,
+                image_height=28 * 5,
                 image_patch_width=7,
                 image_patch_height=7,
                 embedding_dimension=64,
@@ -58,7 +58,7 @@ DEFAULT_MODEL_PARAMETERS = {
         "model_trainer": DigitSequenceModelTrainer,
         "training": DigitSequenceModelTrainingConfig(
             batch_size=64, # 256 took too much GPU memory
-            epochs=100,
+            epochs=20,
             learning_rate=0.00015,
             optimizer="adamw",
             generator_kind="nick",
