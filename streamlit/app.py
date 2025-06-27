@@ -3,6 +3,7 @@ from streamlit_drawable_canvas import st_canvas
 from PIL import Image, ImageDraw
 import numpy as np
 import torch
+import random
 import io
 import sys
 import os
@@ -77,6 +78,7 @@ def create_horizontal_tick_marks_image(width, w_patches):
 def create_image_generator(_model, _data_info):
     """Creates an image generator/iterator based on the data info."""
     data_type = _data_info["type"]
+    torch.manual_seed(random.randint(1, 100000))
 
     if data_type == "bes":
         h_patches = _data_info["h_patches"]
@@ -99,8 +101,7 @@ def create_image_generator(_model, _data_info):
             image_dataset=mnist_ds,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
-            length=100,
-            batches_per_epoch=100, # Create a longer-running generator
+            length=10,
             line_height_min=16,
             line_height_max=64,
         )
@@ -110,7 +111,7 @@ def create_image_generator(_model, _data_info):
         
         david_generator = DavidCompositeDataset(
             train=False,
-            length=100,
+            length=10,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
             line_height_min=16,
