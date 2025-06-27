@@ -1,12 +1,16 @@
 from .common import select_device, ModelBase, ModuleConfig
 from .models import DigitSequenceModel
 from .default_models import DEFAULT_MODEL_PARAMETERS
-from .composite_dataset import BesCombine
+from .composite_dataset import BesCombine, CompositeDataset
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from pydantic import ValidationError
 from typing import Self
+import torchvision
+import os
+from .create_composite_david import composite_image_generator_david
+import torchvision.transforms.v2 as v2
 
 def select_model(choice: str):
     match choice:
@@ -16,6 +20,9 @@ def select_model(choice: str):
         case "best4by4_var":
             model_name = "multi-digit-v1"
             model_path = ModelBase.model_path("best4by4")
+        case "best5by5_scramble":
+            model_name = "multi-digit-v1"
+            model_path = ModelBase.model_path("multi-digit-scrambled-best")
         case _:
             raise ValueError(f"Invalid model choice: {choice}")
 
@@ -32,6 +39,7 @@ def get_data_info(choice : str):
                 "w_patches": 2,
                 "image_size": (56, 56),
                 "variable_length": False,
+                "type": "bes",
             }
         case "best4by4_var":
             return {
@@ -39,6 +47,15 @@ def get_data_info(choice : str):
                 "w_patches": 4,
                 "image_size": (112, 112),
                 "variable_length": True,
+                "type": "bes",
+            }
+        case "best5by5_scramble":
+            return {
+                "h_patches": 5,
+                "w_patches": 5,
+                "image_size": (140, 140),
+                "variable_length": True,
+                "type": "david",
             }
         case _:
             raise ValueError(f"Invalid model choice: {choice}")
@@ -63,8 +80,40 @@ def display_test_images(model, data_info):
     h_patches = data_info["h_patches"]
     w_patches = data_info["w_patches"]
     p_skip = 0.2 if data_info["variable_length"] else 0
-    test_ds = BesCombine(train=False, h_patches=h_patches, w_patches=w_patches, length=100, p_skip=p_skip)
-    for test_image, _ in test_ds:
+    if data_info["type"] == "bes":
+        test_ds = BesCombine(train=False, h_patches=h_patches, w_patches=w_patches, length=100, p_skip=p_skip)
+    elif data_info["type"] == "nick":
+        test_ds = CompositeDataset(train=False, length=100, canvas_size=(28 * h_patches, 28 * w_patches), min_digits=h_patches * w_patches, max_digits=h_patches * w_patches)
+    elif data_info["type"] == "david":
+        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
+        training_transform = v2.Compose([
+        v2.ToImage(),
+        v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
+        v2.RandomResize(28, 40),
+        v2.RandomRotation(25),
+        v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
+    ])
+        test_ds_mnist = torchvision.datasets.MNIST(
+            data_folder,
+            download=True,
+            transform=training_transform,
+            train=False,
+        )
+        test_ds = composite_image_generator_david(
+            image_dataset=test_ds_mnist,
+            output_width=28 * h_patches,
+            output_height=28 * w_patches,
+            output_batch_size=100,
+            batches_per_epoch=1,
+            line_height_min=16,
+            line_height_max=64,
+        )
+    else:
+        raise ValueError(f"Invalid data type: {data_info['type']}")
+
+    for test_image, _, _ in test_ds:
+        test_image = test_image[0]
+        print(type(test_image), test_image.shape)
         out_seq = predict_sequence(model, test_image)
         seq_str = "".join((str(int(x)) if x<10 else "<END>") for x in out_seq)
         plt.imshow(test_image.squeeze(0).cpu().numpy(), cmap="gray")
@@ -76,8 +125,13 @@ if __name__ == "__main__":
     device = select_device()
 
     # Load the model and data info   
-    name = "best4by4_var"
-    all_names = ["best4by4_var", "best2by2"]
+    name = "best5by5_scramble"
+    all_names = ["best5by5_scramble", "best4by4_var", "best2by2"]
+    display_names = {
+        "best5by5_scramble": "5 x 5 scrambled",
+        "best4by4_var": "4 x 4 on-grid",
+        "best2by2": "2 x 2 on-grid (fixed length)",
+    }
     model_path = select_model(name)["model_path"]
     data_info = get_data_info(name)
 
