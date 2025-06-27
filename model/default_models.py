@@ -21,14 +21,14 @@ DEFAULT_MODEL_PARAMETERS = {
     "multi-digit-scrambled-v2": {
         "model_class": DigitSequenceModel,
         "model": DigitSequenceModelConfig(
-            max_sequence_length=5 * 5 + 1,
+            max_sequence_length=10,
             encoder=ImageEncoderConfig(
-                image_width=28 * 5,
-                image_height=28 * 5,
+                image_width=70,
+                image_height=70,
                 image_patch_width=7,
                 image_patch_height=7,
                 embedding_dimension=64,
-                encoder_block_count=10,
+                encoder_block_count=7,
                 encoder_block=EncoderBlockConfig(
                     kq_dimension=32,
                     v_dimension=32,
@@ -57,13 +57,13 @@ DEFAULT_MODEL_PARAMETERS = {
         ),
         "model_trainer": DigitSequenceModelTrainer,
         "training": DigitSequenceModelTrainingConfig(
-            batch_size=64, # 256 took too much GPU memory
+            batch_size=128,
             epochs=20,
             learning_rate=0.00015,
-            training_set_size=60000,
-            validation_set_size=10000,
+            training_set_size=30000,
+            validation_set_size=5000,
             optimizer="adamw",
-            generator_kind="david",
+            generator_kind="david-v2",
         ),
     },
     "multi-digit-scrambled": {

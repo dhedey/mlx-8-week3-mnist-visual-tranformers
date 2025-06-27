@@ -230,6 +230,30 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
                         max_sequence_length=self.model.config.max_sequence_length,
                     )
                     collate_fn = dataset.collate_fn
+                case "david-v2":
+                    assert self.model.config.encoder.image_width == 70
+                    assert self.model.config.encoder.image_height == 70
+                    assert self.model.config.max_sequence_length == 10
+                    dataset = DavidCompositeDataset(
+                        train=train,
+                        length=size,
+                        output_height=70,
+                        output_width=70,
+                        line_height_min=16,
+                        line_height_max=30,
+                        line_spacing_min=2,
+                        line_spacing_max=20,
+                        horizontal_padding_min=2,
+                        horizontal_padding_max=60,
+                        left_margin_offset=0,
+                        first_line_offset=0,
+                        image_scaling_min=0.8,
+                        max_sequence_length=10,
+                        padding_token_id=pad_token_id,
+                        start_token_id=start_token_id,
+                        end_token_id=stop_token_id,
+                    )
+                    collate_fn = dataset.collate_fn
                 case _:
                     raise ValueError(f"Unknown dataset kind: {kind}")
                 

@@ -14,6 +14,7 @@ import pickle
 import wandb
 from torchvision.transforms import v2
 from .wandb_config import WANDB_ENTITY, WANDB_PROJECT_NAME
+import matplotlib.pyplot as plt
 
 class BesCombine(Dataset):
   def __init__(self, max_sequence_length: int = 17, pad_token_id: int = -1, start_token_id: int = 10, stop_token_id: int = 10, train=True, h_patches = 2, w_patches = 2, length = None, p_skip = 0):
@@ -304,6 +305,7 @@ class DavidCompositeDataset(Dataset):
             start_token_id: int = 10,
             end_token_id: int = 10,
             max_sequence_length: int = 32,
+            use_cache: bool = True,
         ):
         if horizontal_padding_min + left_margin_offset < 0:
             raise ValueError("horizontal_padding_min + left_margin_offset must be >= 0")
@@ -337,7 +339,10 @@ class DavidCompositeDataset(Dataset):
         self.pre_generated_random_index = 0
         
         # Try to load from cache using three-tier strategy
-        data = self._load_or_create_dataset()
+        if use_cache:
+            data = self._load_or_create_dataset()
+        else:
+            data = self._generate_dataset()
         self.canvases = data['canvases']
         self.in_labels = data['in_labels']
         self.out_labels = data['out_labels']
@@ -478,9 +483,8 @@ class DavidCompositeDataset(Dataset):
             transform=v2.Compose([
                 v2.ToImage(),
                 v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
-                v2.RandomResize(28, 40),
                 v2.RandomRotation(25),
-                v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
+                v2.RandomResizedCrop(size = self.line_height_max, scale = (0.6, 0.9)),
             ]),
             train=self.train,
         )
@@ -621,3 +625,38 @@ class DavidCompositeDataset(Dataset):
             in_labels.append(in_label)
             out_labels.append(out_label)
         return torch.stack(images), torch.stack(in_labels), torch.stack(out_labels)
+
+if __name__ == "__main__":
+    # Example usage
+    dataset = DavidCompositeDataset(
+        train=True,
+        use_cache=False,
+        length=30,
+        output_height=70,
+        output_width=70,
+        line_height_min=16,
+        line_height_max=30,
+        line_spacing_min=2,
+        line_spacing_max=20,
+        horizontal_padding_min=2,
+        horizontal_padding_max=60,
+        left_margin_offset=0,
+        first_line_offset=0,
+        image_scaling_min=0.8,
+        max_sequence_length=10,
+    )
+    print(f"Dataset length: {len(dataset)}")
+    image, in_label, out_label = dataset[0]
+    print(f"Image shape: {image.shape}, In label: {in_label}, Out label: {out_label}")
+    
+    # Test the collate function
+    batch = [dataset[i] for i in range(10)]
+    collated = dataset.collate_fn(batch)
+    print(f"Collated batch shapes: {collated[0].shape}, {collated[1].shape}, {collated[2].shape}")
+
+    for image, _, labels in dataset:
+        labels = [label for label in labels.numpy() if label != dataset.padding_token_id and label != dataset.end_token_id]
+        seq_str = "".join(str(int(x)) for x in labels)
+        plt.imshow(image.squeeze(0).cpu().numpy(), cmap="gray")
+        plt.title(f"Generated: {seq_str}")
+        plt.show()

@@ -13,6 +13,7 @@ source ~/.local/bin/env
 cd ~
 git clone https://github.com/dhedey/mlx-8-week3-mnist-visual-tranformers
 cd mlx-8-week3-mnist-visual-tranformers
+uv sync
 
 # Change if you're someone else!
 git config --global user.email "nikolaskuhn@gmx.de"
