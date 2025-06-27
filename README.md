@@ -21,6 +21,12 @@ Run the following, with an optional `--model "model_name"` parameter
 uv run -m model.start_train
 ```
 
+# Run streamlit app
+
+```bash
+uv run streamlit run streamlit/app.py
+```
+
 # TODOs
 
 Try RoPE for positional encoding

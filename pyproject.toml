@@ -24,6 +24,7 @@ dependencies = [
     "redis>=6.2.0",
     "torchvision>=0.22.1",
     "einops>=0.8.1",
+    "streamlit-drawable-canvas>=0.9.3",
 ]
 
 # https://docs.astral.sh/uv/concepts/projects/workspaces/

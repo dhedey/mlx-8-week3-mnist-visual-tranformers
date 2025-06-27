@@ -22,6 +22,9 @@ def select_model(choice: str):
         case "best5by5_scramble":
             model_name = "multi-digit-v1"
             model_path = ModelBase.model_path("multi-digit-scrambled-best")
+        case "scrambled-v2":
+            model_name = "multi-digit-scrambled-v2"
+            model_path = ModelBase.model_path("multi-digit-scrambled-v2-best")
         case _:
             raise ValueError(f"Invalid model choice: {choice}")
 
@@ -55,6 +58,12 @@ def get_data_info(choice : str):
                 "image_size": (140, 140),
                 "variable_length": True,
                 "type": "david",
+            }
+        case "scrambled-v2":
+            return {
+                "image_size": (70, 70),
+                "variable_length": True,
+                "type": "david-v2",
             }
         case _:
             raise ValueError(f"Invalid model choice: {choice}")
@@ -97,8 +106,10 @@ def display_test_images(model, data_info):
     else:
         raise ValueError(f"Invalid data type: {data_info['type']}")
 
-    for test_image, _, _ in test_ds:
-        test_image = test_image[0]
+    for item in test_ds:
+        test_image = item[0]
+        while len(test_image.shape) < 3:
+            test_image = test_image.unsqueeze(0) # Add channel dimension
         out_seq = predict_sequence(model, test_image)
         seq_str = "".join((str(int(x)) if x<10 else "<END>") for x in out_seq)
         plt.imshow(test_image.squeeze(0).cpu().numpy(), cmap="gray")
@@ -110,7 +121,7 @@ if __name__ == "__main__":
     device = select_device()
 
     # Load the model and data info   
-    name = "best5by5_scramble"
+    name = "best4by4_var"
     all_names = ["best5by5_scramble", "best4by4_var", "best2by2"]
     display_names = {
         "best5by5_scramble": "5 x 5 scrambled",

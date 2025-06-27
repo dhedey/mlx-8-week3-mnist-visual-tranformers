@@ -28,7 +28,7 @@ st.write("A multi-digit MNIST sequence predictor.")
 
 # Invert the display_names dictionary to map display names back to keys
 display_names = {
-    "best5by5_scramble": "5 x 5 scrambled",
+    "scrambled-v2": "Scrambled",
     "best4by4_var": "4 x 4 on-grid",
     "best2by2": "2 x 2 on-grid (fixed length)",
 }
@@ -67,10 +67,10 @@ def create_horizontal_tick_marks_image(width, w_patches):
 def create_image_generator(_model, _data_info):
     """Creates an image generator/iterator based on the data info."""
     data_type = _data_info["type"]
-    h_patches = _data_info["h_patches"]
-    w_patches = _data_info["w_patches"]
 
     if data_type == "bes":
+        h_patches = _data_info["h_patches"]
+        w_patches = _data_info["w_patches"]
         p_skip = 0.2 if _data_info["variable_length"] else 0
         dataset = BesCombine(train=False, h_patches=h_patches, w_patches=w_patches, length=100, p_skip=p_skip)
         return iter(dataset)
@@ -95,6 +95,26 @@ def create_image_generator(_model, _data_info):
             line_height_max=64,
         )
         return david_generator
+    elif data_type == "david-v2":
+        data_folder = os.path.join(os.path.dirname(__file__), "..", "model", "datasets")
+        
+        david_generator = DavidCompositeDataset(
+            train=False,
+            output_width=_model.config.encoder.image_width,
+            output_height=_model.config.encoder.image_height,
+            output_batch_size=1,
+            line_height_min=16,
+            line_height_max=30,
+            line_spacing_min=2,
+            line_spacing_max=20,
+            horizontal_padding_min=2,
+            horizontal_padding_max=60,
+            left_margin_offset=0,
+            first_line_offset=0,
+            image_scaling_min=0.8,
+            max_sequence_length=10,
+        )
+        return david_generator
     else:
         st.error(f"Example generation not supported for type: {data_type}")
         return None
@@ -113,7 +133,7 @@ def get_next_example_image(model_key, model, data_info):
         data_type = data_info["type"]
         if data_type == "bes":
             example_image_tensor, _ = next(generator)
-        elif data_type == "david":
+        elif data_type == "david" or data_type == "david-v2":
             img_batch, _, _ = next(generator)
             example_image_tensor = img_batch[0]
         else:

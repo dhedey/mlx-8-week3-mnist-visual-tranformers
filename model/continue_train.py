@@ -19,6 +19,11 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
+        '--early-stopping',
+        action='store_true',
+        help='Enable early stopping during training'
+    )
+    parser.add_argument(
         '--learning-rate',
         type=float,
         default=None,
