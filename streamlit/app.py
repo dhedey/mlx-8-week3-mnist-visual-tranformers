@@ -99,7 +99,7 @@ def create_image_generator(_model, _data_info):
             image_dataset=mnist_ds,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
-            length=10,
+            length=100,
             batches_per_epoch=100, # Create a longer-running generator
             line_height_min=16,
             line_height_max=64,
@@ -110,7 +110,7 @@ def create_image_generator(_model, _data_info):
         
         david_generator = DavidCompositeDataset(
             train=False,
-            length=10,
+            length=100,
             output_width=_model.config.encoder.image_width,
             output_height=_model.config.encoder.image_height,
             line_height_min=16,
