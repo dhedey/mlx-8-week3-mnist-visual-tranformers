@@ -375,10 +375,9 @@ elif mode == "Game":
             st.session_state['ai_labels'] = ai_labels
             st.session_state['actual_labels'] = actual_labels
             st.session_state['prediction_time'] = prediction_time
-            st.session_state['user_time_ms'] = prediction_time * 2 * 1000
+            st.session_state['user_time_ms'] = prediction_time * 1000
 
-            st.write(f"The AI predicted this round in {prediction_time * 1000:0.0f} ms.")
-            st.write(f"You will be given {st.session_state['user_time_ms']:0.0f} ms.")
+            st.write(f"The AI predicted this round in {prediction_time * 1000:0.0f} ms, you will be given the same! Good luck.")
             st.write("Press 'Next Round' to start the next round.")
         case "see":
             col, _ = st.columns([5, 5])
