@@ -57,7 +57,7 @@ DEFAULT_MODEL_PARAMETERS = {
         ),
         "model_trainer": DigitSequenceModelTrainer,
         "training": DigitSequenceModelTrainingConfig(
-            batch_size=256, # 256 took too much GPU memory
+            batch_size=64, # 256 took too much GPU memory
             epochs=100,
             learning_rate=0.00015,
             optimizer="adamw",
