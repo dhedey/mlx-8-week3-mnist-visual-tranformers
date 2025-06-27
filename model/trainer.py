@@ -16,7 +16,6 @@ import os
 from typing import Optional
 import time
 
-from model.create_composite_david import IterableWithLength, composite_image_generator_david
 from .common import TrainingState, TrainerOverrides, ModelTrainerBase, ModelBase, TrainingConfig, BatchResults, ValidationResults
 from .composite_dataset import CompositeDataset, DavidCompositeDataset, sequence_collate_fn, BesCombine
 from .models import SingleDigitModel, DigitSequenceModel

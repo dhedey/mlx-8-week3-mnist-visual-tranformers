@@ -18,6 +18,52 @@ from .trainer import ModelTrainerBase, DigitSequenceModelTrainer, DigitSequenceM
 from .wandb_config import WANDB_ENTITY, WANDB_PROJECT_NAME
 
 DEFAULT_MODEL_PARAMETERS = {
+    "multi-digit-scrambled-v2": {
+        "model_class": DigitSequenceModel,
+        "model": DigitSequenceModelConfig(
+            max_sequence_length=5 * 5 + 1,
+            encoder=ImageEncoderConfig(
+                image_width=28 * 5,
+                image_height=28 * 5,
+                image_patch_width=7,
+                image_patch_height=7,
+                embedding_dimension=64,
+                encoder_block_count=10,
+                encoder_block=EncoderBlockConfig(
+                    kq_dimension=32,
+                    v_dimension=32,
+                    embedding_dimension=64,
+                    num_heads=8,
+                    mlp_hidden_dimension=256,
+                    mlp_dropout=0.2,
+                ),
+            ),
+            decoder_block_count=5,
+            decoder_block=DecoderBlockConfig(
+                encoder_embedding_dimension=64,
+                decoder_embedding_dimension=64,
+
+                self_attention_kq_dimension=32,
+                self_attention_v_dimension=32,
+                self_attention_heads=8,
+
+                cross_attention_kq_dimension=32,
+                cross_attention_v_dimension=32,
+                cross_attention_heads=8,
+
+                mlp_hidden_dimension=256,
+                mlp_dropout=0.2,
+            ),
+        ),
+        "model_trainer": DigitSequenceModelTrainer,
+        "training": DigitSequenceModelTrainingConfig(
+            batch_size=64, # 256 took too much GPU memory
+            epochs=20,
+            learning_rate=0.00015,
+            optimizer="adamw",
+            generator_kind="david",
+        ),
+    },
     "multi-digit-scrambled": {
         "model_class": DigitSequenceModel,
         "model": DigitSequenceModelConfig(

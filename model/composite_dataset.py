@@ -313,10 +313,11 @@ class DavidCompositeDataset(Dataset):
                 v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
                 v2.RandomResize(28, 40),
                 v2.RandomRotation(25),
+                v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
             ]),
             train=train,
         )
-        self.digit_size = 40
+        self.digit_size = 28
 
         self.digit_data_loader = torch.utils.data.DataLoader(
             self.digit_dataset,
@@ -372,11 +373,11 @@ class DavidCompositeDataset(Dataset):
         self.out_labels = data['out_labels']
 
     def rand(self):
-        if self.pre_generated_index >= len(self.pre_generated):
-            self.pre_generated = torch.rand((10000,))
-            self.pre_generated_index = 0
-        value = self.pre_generated[self.pre_generated_index]
-        self.pre_generated_index += 1
+        if self.pre_generated_random_index >= len(self.pre_generated_random):
+            self.pre_generated_random = torch.rand((10000,))
+            self.pre_generated_random_index = 0
+        value = self.pre_generated_random[self.pre_generated_random_index]
+        self.pre_generated_random_index += 1
         return value
     
     def randint(self, min_value, max_value_inclusive):
@@ -401,6 +402,7 @@ class DavidCompositeDataset(Dataset):
             'line_spacing_max': self.line_spacing_max,
             'horizontal_padding_min': self.horizontal_padding_min,
             'horizontal_padding_max': self.horizontal_padding_max,
+            'left_margin_offset': self.left_margin_offset,
             'first_line_offset': self.first_line_offset,
             'image_scaling_min': self.image_scaling_min,
             'padding_token_id': self.padding_token_id,
@@ -538,18 +540,18 @@ class DavidCompositeDataset(Dataset):
                     horizontal_offset += horizontal_padding
 
                     # Fill the line with random images
-                    image_size = self.randint_biaseddown(math.floor(self.image_scaling_min * line_height), line_height)
+                    digit_size = self.randint_biaseddown(math.floor(self.image_scaling_min * line_height), line_height)
 
-                    horizontal_end_offset = horizontal_offset + image_size
+                    horizontal_end_offset = horizontal_offset + digit_size
                     if horizontal_end_offset > self.output_width:
                         break
 
                     digit, label = next(self.infinite_labelled_images)
                      # NB: image is already rotated and up-scaled!
-                    digit = v2.RandomResizedCrop(size = image_size, scale = (image_size/self.digit_width, image_size/self.digit_width))(digit)
+                    digit = v2.Resize(digit_size)(digit)
 
-                    image_vertical_start_offset = line_offset + self.randint(0, line_height - image_size)
-                    image_vertical_end_offset = image_vertical_start_offset + image_size
+                    image_vertical_start_offset = line_offset + self.randint(0, line_height - digit_size)
+                    image_vertical_end_offset = image_vertical_start_offset + digit_size
 
                     composite_images[
                         composite_in_batch_index,
@@ -561,7 +563,7 @@ class DavidCompositeDataset(Dataset):
                     out_labels[composite_in_batch_index, image_in_composite_index] = label
                     image_in_composite_index += 1
 
-                    horizontal_offset += image_size
+                    horizontal_offset += digit_size
 
                     if image_in_composite_index == self.max_sequence_length - 1:
                         allow_more_images = False
