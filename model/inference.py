@@ -1,7 +1,7 @@
 from .common import select_device, ModelBase, ModuleConfig
 from .models import DigitSequenceModel
 from .default_models import DEFAULT_MODEL_PARAMETERS
-from .composite_dataset import BesCombine, CompositeDataset
+from .composite_dataset import BesCombine, CompositeDataset, DavidCompositeDataset
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from typing import Self
 import torchvision
 import os
-from .create_composite_david import composite_image_generator_david
 import torchvision.transforms.v2 as v2
 
 def select_model(choice: str):
@@ -85,35 +84,21 @@ def display_test_images(model, data_info):
     elif data_info["type"] == "nick":
         test_ds = CompositeDataset(train=False, length=100, canvas_size=(28 * h_patches, 28 * w_patches), min_digits=h_patches * w_patches, max_digits=h_patches * w_patches)
     elif data_info["type"] == "david":
-        data_folder = os.path.join(os.path.dirname(__file__), "datasets")
-        training_transform = v2.Compose([
-        v2.ToImage(),
-        v2.ToDtype(dtype=torch.float32, scale=True), # Scale to [0, 1]
-        v2.RandomResize(28, 40),
-        v2.RandomRotation(25),
-        v2.RandomResizedCrop(size = 28, scale = (28.0/40, 28.0/40)),
-    ])
-        test_ds_mnist = torchvision.datasets.MNIST(
-            data_folder,
-            download=True,
-            transform=training_transform,
+        test_ds = DavidCompositeDataset(
             train=False,
-        )
-        test_ds = composite_image_generator_david(
-            image_dataset=test_ds_mnist,
-            output_width=28 * h_patches,
-            output_height=28 * w_patches,
-            output_batch_size=100,
-            batches_per_epoch=1,
-            line_height_min=16,
-            line_height_max=64,
+            length=10,
+            output_width=model.config.encoder.image_width,
+            output_height=model.config.encoder.image_height,
+            max_sequence_length=model.config.max_sequence_length,
+            padding_token_id = -1,
+            start_token_id = 10,
+            end_token_id = 10,
         )
     else:
         raise ValueError(f"Invalid data type: {data_info['type']}")
 
     for test_image, _, _ in test_ds:
         test_image = test_image[0]
-        print(type(test_image), test_image.shape)
         out_seq = predict_sequence(model, test_image)
         seq_str = "".join((str(int(x)) if x<10 else "<END>") for x in out_seq)
         plt.imshow(test_image.squeeze(0).cpu().numpy(), cmap="gray")
@@ -138,6 +123,4 @@ if __name__ == "__main__":
     model = DigitSequenceModel.load_for_evaluation(model_path=model_path, device=device)
 
     for test_image, out_seq in display_test_images(model, data_info):
-        user_input = input("Displaying test predictions. Press Enter to continue, 'q' to quit...")
-        if user_input == "q":
-            break
+        print("Generating another image... Press Ctrl+C to stop, or close image to get another.")
