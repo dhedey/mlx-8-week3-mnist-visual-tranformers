@@ -9,6 +9,8 @@ import os
 import torchvision
 import torchvision.transforms.v2 as v2
 import einops
+from uuid import uuid4
+import streamlit.components.v1 as components
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -164,14 +166,10 @@ with main_col:
         drawing_mode="freedraw",
         key="canvas",
     )
-    if data_info["type"] == "bes":
-        tick_marks_h_img = create_horizontal_tick_marks_image(canvas_width, data_info['w_patches'])
-        st.image(tick_marks_h_img)
+    # tick mark images removed; grid overlay handles guidance
 
 with right_col:
-    if data_info["type"] == "bes":
-        tick_marks_v_img = create_tick_marks_image(canvas_height, data_info['h_patches'])
-        st.image(tick_marks_v_img)
+    pass  # tick mark sidebar removed
 
 # --- Prediction Logic ---
 predict_col, example_col = st.columns(2)
