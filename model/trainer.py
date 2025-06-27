@@ -268,7 +268,7 @@ class DigitSequenceModelTrainer(ModelTrainerBase):
         # CrossEntropyLoss needs:
         # - Logits shaped like   (BatchSize, VocabularySize, ...Other Dimensions...)
         # - Expected shaped like (BatchSize, ...Other Dimensions...)
-        loss = criterion(logits.transpose(-1, -2), expected_sequences)
+        loss = criterion(logits.transpose(-1, -2), expected_sequences.to(torch.long))
 
         return BatchResults(
             total_loss=loss,
